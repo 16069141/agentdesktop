@@ -1,9 +1,46 @@
 # 私有域 AI 助手客户端
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](https://github.com/your-org/private-ai-client/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgray.svg)](#)
 
 一个类 WorkBuddy 的桌面 AI 助手，支持私有化部署和互联网商业大模型，主打「数据不出内网」。
+
+## 快速开始
+
+### 1. 下载安装包
+
+从 [Releases](https://github.com/your-org/private-ai-client/releases) 下载对应平台版本：
+- **macOS**：`私有域AI助手-0.1.0.dmg`
+- **Windows**：`私有域AI助手 Setup 0.1.0.exe`
+- **Linux**：`私有域AI助手-0.1.0.AppImage`
+
+### 2. 安装 Ollama（本地模型）
+
+```bash
+# macOS
+brew install ollama
+
+# Windows
+# 访问 https://ollama.ai/download/windows
+
+# Linux
+curl -fsSL https://ollama.ai/install.sh | sh
+```
+
+### 3. 下载模型
+
+```bash
+ollama pull qwen2.5:7b         # 通用对话
+ollama pull deepseek-coder:6.7b  # 编程助手（可选）
+ollama pull bge-m3             # Embedding（知识库必需）
+```
+
+### 4. 启动应用
+
+双击应用图标即可。首次启动会自动连接本地 Ollama 服务。
+
+---
 
 ## 核心特性
 
