@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+
+  /* 默认走暗色主题，避免 JS 注入变量前出现无样式闪烁（FOUC） */
+  --bg: #0a0f1a;
+  --bg-panel: rgba(255, 255, 255, 0.055);
+  --bg-elev: rgba(255, 255, 255, 0.09);
+  --bg-hover: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-soft: rgba(255, 255, 255, 0.09);
+  --text: #eef3f9;
+  --text-dim: #a8b5c6;
+  --text-faint: #6e7b8f;
+  --glass: blur(24px) saturate(170%);
+  --mono: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  --surf-input: rgba(255, 255, 255, 0.06);
+  --thinking: #8b9df5;
+  --tool: #e0a45c;
+  --ok: #3fd8a0;
+  --warn: #f2b35e;
+  --danger: #f2647c;
+  --code-bg: rgba(0, 0, 0, 0.32);
+
+  --accent: #3fd8be;
+  --accent-ink: #0b211c;
+  --accent-soft: rgba(63, 216, 190, 0.16);
+}
+
+body {
+  margin: 0;
+  min-width: 1080px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#root {
+  height: 100vh;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* 选中文字 */
+::selection {
+  background: var(--accent-soft);
+}
+
+/* 流式生成光标 */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "appId": "com.private-ai.client",
+  "productName": "私有域AI助手",
+  "directories": {
+    "buildResources": "build",
+    "output": "../release"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*"
+  ],
+  "win": {
+    "target": ["nsis"]
+  },
+  "mac": {
+    "target": ["dmg"]
+  },
+  "linux": {
+    "target": ["AppImage"]
+  }
+}
