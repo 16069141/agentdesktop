@@ -15,6 +15,7 @@ Phase 1 用「回声式」模拟生成验证全链路；Phase 2 接入 LangGraph
 """
 import asyncio
 import json
+import logging
 import uuid
 from typing import Any, AsyncIterator, Dict, Optional
 
@@ -27,6 +28,8 @@ from ..agents.orchestrator import AgentOrchestrator
 from ..context.context_manager import ContextManager
 from ..providers import build_providers, get_registry
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["chat"])
 
 conv_repo = ConversationRepo()
@@ -35,9 +38,29 @@ msg_repo = MessageRepo()
 # 初始化 Agent 编排器（Phase 3 集成）
 _provider_registry = get_registry()
 _context_manager = ContextManager(max_tokens=16384)
+
+
+def _build_rag_pipeline():
+    """构建 RAG Pipeline；依赖缺失或初始化失败时返回 None，由 knowledge 工具给出明确提示。"""
+    try:
+        from ..rag.pipeline import RAGPipeline
+        pipeline = RAGPipeline()
+        if not getattr(pipeline, "available", False):
+            logger.warning("[chat] RAG Pipeline 不可用（降级模式），knowledge 工具将提示未初始化")
+            return None
+        logger.info("[chat] RAG Pipeline 就绪")
+        return pipeline
+    except Exception as exc:
+        logger.warning(f"[chat] RAG Pipeline 初始化失败，降级: {exc}")
+        return None
+
+
+_rag_pipeline = _build_rag_pipeline()
+
 _agent_orchestrator = AgentOrchestrator(
     context_manager=_context_manager,
     system_prompt="你是一个智能助手，帮助用户完成各种任务。",
+    rag_pipeline=_rag_pipeline,
     approval_callback=None,
     allowed_root_dirs=["/Users/caojian"],
 )

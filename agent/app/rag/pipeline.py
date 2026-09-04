@@ -98,7 +98,10 @@ class Embedder:
     def _check_ollama(self) -> bool:
         try:
             import urllib.request
-            urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+            # 必须显式禁用代理：127.0.0.1 的流量被企业代理拦截后会直接失败，
+            # 导致这里误判「Ollama 不可用」，整条向量链路被静默降级。
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            opener.open("http://127.0.0.1:11434/api/tags", timeout=3).close()
             return True
         except Exception:
             return False
@@ -121,7 +124,13 @@ class Embedder:
         return vectors
 
     async def _embed_ollama(self, texts: List[str]) -> List[List[float]]:
-        """调用 Ollama /embeddings 批量接口。"""
+        """调用 Ollama 批量向量化接口。
+
+        端点必须是 /api/embed（批量，接受 {"model","input":[...]}，返回
+        {"embeddings":[...]}）。旧的 /api/embeddings 只接受单个 "prompt" 并返回
+        {"embedding":[...]}，用它配 input 会 400，进而静默降级成占位向量 —— 检索
+        结果会变成看似正常、实则无意义的噪声。
+        """
         import urllib.request
         import json as _json
         data = _json.dumps({
@@ -129,22 +138,40 @@ class Embedder:
             "input": texts,
         }).encode()
         req = urllib.request.Request(
-            "http://localhost:11434/api/embeddings",
+            "http://127.0.0.1:11434/api/embed",
             data=data,
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            # 禁用代理，否则本机请求会被企业代理拦截
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req, timeout=60) as resp:
                 result = _json.loads(resp.read().decode())
-                return result.get("embeddings", [])
+                embeddings = result.get("embeddings") or []
+                if len(embeddings) != len(texts):
+                    raise ValueError(
+                        f"向量数量不匹配: 期望 {len(texts)}，实际 {len(embeddings)}"
+                    )
+                return embeddings
         except Exception as e:
             logger.warning("[rag] Ollama embed 失败: %s", e)
             return await self._embed_fallback(texts)
 
     async def _embed_fallback(self, texts: List[str]) -> List[List[float]]:
-        """最终降级：随机向量（仅用于测试）。"""
-        import random
-        return [[random.random() for _ in range(32)] for _ in texts]
+        """最终降级：基于文本 hash 的确定性向量。
+
+        为什么不用随机向量：随机向量每次调用都不同，入库与查询的向量空间不一致，
+        检索结果完全无意义且不可复现，比明确的「RAG 不可用」更难排查。
+        这里用稳定的 sha256 派生向量，保证同一文本始终得到同一向量。
+        """
+        import hashlib
+        vectors = []
+        for t in texts:
+            digest = hashlib.sha256(t.encode("utf-8")).hexdigest()
+            # 重复摘要以扩展到 128 维，chromadb 接受任意维度
+            extended = (digest * 8)[:256]
+            vectors.append([int(extended[i:i + 2], 16) / 255.0 for i in range(0, 256, 2)])
+        return vectors
 
 
 class Reranker:
@@ -186,14 +213,26 @@ class RAGPipeline:
         self.embedder = Embedder(model=self.cfg.get("embed_model", "bge-m3"))
         self.reranker = Reranker(enabled=self.cfg.get("use_rerank", True))
 
-        # ChromaDB 持久化客户端
+        # ChromaDB 持久化客户端。缺失依赖时保持 available=False，
+        # 让上层（knowledge 工具）能给出明确提示，而不是在构造阶段就抛 AttributeError。
+        self.available = bool(CHROMADB_AVAILABLE)
+        self.chroma_client = None
+        self.collection = None
+        if not CHROMADB_AVAILABLE:
+            logger.warning("[rag] chromadb 不可用，RAGPipeline 以降级模式运行（检索返回空）")
+            return
+
         data_dir = Path(os.environ.get("AGENT_DATA_DIR", str(Path.home() / ".private-ai" / "data")))
         data_dir.mkdir(parents=True, exist_ok=True)
-        self.chroma_client = chromadb.PersistentClient(path=str(data_dir / "chroma.db"))
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="knowledge",
-            metadata={"hnsw:space": "cosine"},
-        )
+        try:
+            self.chroma_client = chromadb.PersistentClient(path=str(data_dir / "chroma.db"))
+            self.collection = self.chroma_client.get_or_create_collection(
+                name="knowledge",
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as e:
+            logger.exception("[rag] ChromaDB 初始化失败，降级模式: %s", e)
+            self.available = False
 
     async def ingest(self, filename: str, content: bytes, doc_id: str, meta: Optional[Dict[str, Any]] = None) -> int:
         """导入单个文档，返回插入的 chunk 数。重复 content_hash 自动跳过。"""
@@ -202,8 +241,11 @@ class RAGPipeline:
         text = content.decode("utf-8", errors="replace")
         # 按 document 级 hash 去重（整个文件）
         doc_hash = hashlib.sha256(content).hexdigest()
-        # 检查是否已完整导入
-        existing = self.collection.get(where={"doc_id": doc_id, "content_hash": doc_hash}, limit=1)
+        # 检查是否已完整导入（chromadb where 要求单操作符，多条件需用 $and）
+        existing = self.collection.get(
+            where={"$and": [{"doc_id": doc_id}, {"content_hash": doc_hash}]},
+            limit=1,
+        )
         if existing and existing["ids"]:
             logger.info("[rag] 文档已存在，跳过: %s", filename)
             return 0
@@ -216,6 +258,10 @@ class RAGPipeline:
         })
 
         if not chunks:
+            return 0
+
+        if not self.available or self.collection is None:
+            logger.error("[rag] ChromaDB 不可用，无法导入文档: %s", filename)
             return 0
 
         # 逐块向量化
@@ -240,6 +286,10 @@ class RAGPipeline:
 
     async def search(self, query: str, top_k: int = 5, doc_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """混合检索（BM25 + 向量 RRF 融合）。"""
+        if not self.available or self.collection is None:
+            logger.warning("[rag] ChromaDB 不可用，检索返回空结果")
+            return []
+
         where = {"doc_id": doc_id} if doc_id else None
 
         # 1) 向量检索 Top20

@@ -64,7 +64,10 @@ class OpenAICompatibleProvider(BaseProvider):
         if self._client is None:
             try:
                 from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+                # 禁用环境变量代理，避免企业代理干扰本地模型服务
+                import httpx2
+                http_client = httpx2.AsyncClient(trust_env=False)
+                self._client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, http_client=http_client)
             except ImportError:
                 logger.warning("[provider] openai 包未安装，ChatCompletion 不可用。安装: pip install openai")
                 self._client = _MockClient(self.base_url, self.api_key)
@@ -192,4 +195,14 @@ class _InternetApiPlaceholder(BaseProvider):
 
 
 # 从 routing.py 导入路由相关符号
-from .routing import ProviderRegistry, classify_task, resolve_model, get_registry
+from .routing import (  # noqa: E402
+    ProviderRegistry,
+    classify_task,
+    get_registry,
+    model_supports_tools,
+    resolve_model,
+)
+
+# 运行时能力回写接口：Agent 编排器遇到 "does not support tools" 时，
+# 用它撤销该模型的工具能力标记，避免同一错误反复触发。
+from .routing import _mark_model_tool_support  # noqa: E402

@@ -19,7 +19,13 @@ import logging
 from typing import Any, AsyncIterator, Optional
 
 from ..context.context_manager import ContextManager
-from ..providers import classify_task, get_registry, resolve_model
+from ..providers import (
+    _mark_model_tool_support,
+    classify_task,
+    get_registry,
+    model_supports_tools,
+    resolve_model,
+)
 from ..tools import init_tools
 
 logger = logging.getLogger(__name__)
@@ -58,8 +64,16 @@ class ToolNode:
     async def execute(
         self,
         tool_calls: list[dict],
+        cache: dict[str, str] | None = None,
     ) -> list[dict]:
-        """执行工具调用列表，返回 role="tool" 消息。"""
+        """执行工具调用列表，返回 role="tool" 消息。
+
+        Args:
+            cache: 可选的「(工具名, 参数) → 上次结果」缓存。传入后，
+                完全相同的调用会直接复用上次结果而不重复执行 ——
+                小模型常对同一参数反复调用同一工具，实测出现过连续 6 次
+                相同调用，既拖慢响应又吃满上下文预算。
+        """
         results = []
         for tc in tool_calls:
             tool_name = tc.get("function", {}).get("name", "")
@@ -70,6 +84,23 @@ class ToolNode:
                 args = json.loads(tool_args_str) if tool_args_str else {}
             except json.JSONDecodeError:
                 args = {}
+
+            # 去重键：工具名 + 规范化后的参数
+            cache_key = f"{tool_name}|{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+            if cache is not None and cache_key in cache:
+                logger.warning(
+                    f"[agent] 检测到重复工具调用，复用上次结果: {tool_name}"
+                )
+                results.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": (
+                        f"{cache[cache_key]}\n\n"
+                        "[系统提示] 这是与上一次完全相同的调用，结果未发生变化。"
+                        "请不要重复调用同一工具与参数，直接基于已有结果给出最终回答。"
+                    ),
+                })
+                continue
 
             tool_obj = self.registry.get(tool_name)
             if tool_obj is None:
@@ -85,6 +116,9 @@ class ToolNode:
                 except Exception as exc:
                     result_text = f"工具执行失败: {exc}"
                     logger.error(f"[agent] {tool_name} 执行异常: {exc}")
+
+            if cache is not None:
+                cache[cache_key] = result_text
 
             results.append({
                 "role": "tool",
@@ -142,9 +176,24 @@ class AgentOrchestrator:
             {"role": "user", "content": user_message},
         ]
         task_type = classify_task(user_message)
+        # require_tools=True：Agent 的核心价值就是调用工具闭环，
+        # 因此优先选择支持 function calling 的模型；不支持的候选会被跳过。
         target_model, target_provider = resolve_model(
-            self._registry, task_type, user_preferred=model_id
+            self._registry, task_type, user_preferred=model_id, require_tools=True
         )
+
+        # 工具 schema 在整个会话中保持不变，循环外只构建一次。
+        # 是否真的挂载取决于模型能力：不带 tools 的模型（如 deepseek-coder:6.7b）
+        # 收到 tools 参数会直接 400，因此按能力探测结果决定。
+        tool_schemas: list[dict] | None = None
+        tools_enabled = model_supports_tools(target_model)
+        # 单次会话内的工具调用去重缓存（跨会话不复用，避免结果过期）
+        tool_call_cache: dict[str, str] = {}
+        # 同工具连续调用计数：小模型常见失效模式是反复调用同一工具
+        # （每次换不同参数但仍陷在同一意图里）。连续超过阈值时强制终止，
+        # 避免无意义的 6+ 轮空转。
+        _last_tool: str | None = None
+        _streak: int = 0
 
         state = AgentState(
             messages=messages,
@@ -187,11 +236,31 @@ class AgentOrchestrator:
             all_tool_calls: list[dict] = []
             last_tool_calls_event: list[dict] | None = None
 
+            # 没有工具 schema，模型就不可能产出 tool_calls，下面的多轮工具闭环
+            # 永远不会被执行 —— 这是 Phase 3 能否成立的关键。
+            if tool_schemas is None:
+                tool_schemas = [
+                    t.to_openai_schema()
+                    for t in self._tool_registry.values()
+                    if hasattr(t, "to_openai_schema")
+                ]
+                if tool_schemas and tools_enabled:
+                    logger.info(f"[agent] 已向模型注册 {len(tool_schemas)} 个工具: "
+                                f"{[s['function']['name'] for s in tool_schemas]}")
+                elif tool_schemas:
+                    logger.info(f"[agent] 模型 {state.model_id} 不支持 tools，"
+                                f"本轮不挂载工具（{len(tool_schemas)} 个工具已就绪但未下发）")
+
+            # tools=None 会让部分 SDK/后端报参数错误，只在有工具时显式传入
+            chat_kwargs: dict[str, Any] = {"stream": True}
+            if tool_schemas and tools_enabled:
+                chat_kwargs["tools"] = tool_schemas
+
             try:
                 async for event in provider.chat(
                     messages=full_messages,
                     model=state.model_id,
-                    stream=True,
+                    **chat_kwargs,
                 ):
                     etype = event.get("type", "")
                     if etype == "text":
@@ -212,12 +281,35 @@ class AgentOrchestrator:
                         yield {"type": "error", "message": event.get("message", "")}
                         return
             except Exception as exc:
+                msg = str(exc)
+                # 兜底降级：能力探测可能失效（非 Ollama 后端、探测超时等），
+                # 运行时若明确报「不支持 tools」，就关掉工具重试本轮，
+                # 而不是把整个对话判死。
+                if tools_enabled and ("does not support tools" in msg.lower()):
+                    logger.warning(
+                        f"[agent] 模型 {state.model_id} 实际不支持 tools，关闭工具后重试: {msg}"
+                    )
+                    _mark_model_tool_support(state.model_id, False)
+                    tools_enabled = False
+                    assistant_content = ""
+                    all_tool_calls = []
+                    continue
+
                 logger.error(f"[agent] LLM 调用异常: {exc}")
                 yield {"type": "error", "message": f"模型调用失败: {exc}"}
                 break
 
-            # 将助理回复加入历史
-            if assistant_content:
+            # 将助理回复加入历史。
+            # 关键：即便 assistant_content 为空（模型只产出 tool_calls、没有正文），
+            # 也必须把这轮 assistant 消息连同 tool_calls 一起入列。否则后续追加的
+            # role="tool" 消息没有前置的 tool_calls，OpenAI 兼容接口会直接报错：
+            # "messages with role 'tool' must be a response to a preceeding message
+            #  with 'tool_calls'" —— 表现为第二轮起整个工具闭环崩掉。
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_content}
+            if all_tool_calls:
+                assistant_msg["tool_calls"] = all_tool_calls
+                state.messages.append(assistant_msg)
+            elif assistant_content:
                 state.messages.append({"role": "assistant", "content": assistant_content})
 
             # ── 路由：有无工具调用？ ──
@@ -226,9 +318,46 @@ class AgentOrchestrator:
                 break
 
             # 有工具调用 → 执行工具，追加 role="tool" 消息后继续循环
-            tool_results = await self._tool_node.execute(all_tool_calls)
+            #
+            # 去重：小模型常见的失效模式是「对同一参数反复调用同一工具」
+            # （实测出现同一路径连续调用 6 次），每次都要等一轮完整推理，
+            # 既拖慢响应又消耗上下文预算。这里识别完全重复的调用，
+            # 命中时直接复用上次结果，不再真正执行。
+            tool_results = await self._tool_node.execute(
+                all_tool_calls, cache=tool_call_cache
+            )
             state.messages.extend(tool_results)
             state.tool_results.extend(tool_results)
+
+            # 产出工具事件，便于前端/评测观察闭环过程
+            for tc in all_tool_calls:
+                fn = tc.get("function", {})
+                yield {"type": "tool_call", "name": fn.get("name", ""), "arguments": fn.get("arguments", "")}
+
+            # ── 同工具连续调用检测（防循环）──
+            # 小模型在 coding / 分析类任务上容易陷入「同一工具换不同参数反复调」
+            # 的死循环（实测 code 工具被连续调用 6 次）。这里按单轮主工具名统计
+            # 连续命中次数，达到阈值（默认 3）就注入系统警告并强制退出循环。
+            called_names = [tc.get("function", {}).get("name", "") for tc in all_tool_calls]
+            primary_tool = called_names[0] if called_names else None
+            if primary_tool and primary_tool == _last_tool:
+                _streak += 1
+            else:
+                _last_tool = primary_tool
+                _streak = 1
+
+            if _streak >= 3:
+                logger.warning(
+                    f"[agent] 工具 '{primary_tool}' 连续调用 {_streak} 次，疑似循环，注入警告并终止"
+                )
+                state.messages.append({
+                    "role": "system",
+                    "content": (
+                        f"[系统警告] 工具 '{primary_tool}' 已被连续调用 {_streak} 次。"
+                        "请立即停止重复调用，直接基于已有结果给出最终回答。"
+                    ),
+                })
+                break
 
             logger.info(f"[agent] 第 {turn} 轮：执行了 {len(tool_results)} 个工具，继续对话")
 

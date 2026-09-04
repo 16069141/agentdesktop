@@ -20,8 +20,23 @@ class BaseTool:
     description: str = "Base tool"
     requires_approval: bool = False
 
+    # OpenAI function-calling 风格的参数 JSON Schema。
+    # 没有它，模型就无从知道该传什么参数，工具调用闭环无法成立。
+    parameters: Dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
+
+    def to_openai_schema(self) -> Dict[str, Any]:
+        """转换为 OpenAI/Ollama function-calling 的工具描述。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
 
 
 class FilesystemTool(BaseTool):
@@ -30,6 +45,30 @@ class FilesystemTool(BaseTool):
     name = "filesystem"
     description = "读取/写入文件、列出目录、搜索文件。操作限制在 allowed_root_dirs 内。"
     requires_approval = False
+
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["read", "write", "list", "search"],
+                "description": "操作类型：read 读文件 / write 写文件 / list 列目录 / search 按 glob 搜索文件",
+            },
+            "path": {
+                "type": "string",
+                "description": "目标文件或目录的绝对路径",
+            },
+            "content": {
+                "type": "string",
+                "description": "action=write 时必填：要写入的文本内容",
+            },
+            "pattern": {
+                "type": "string",
+                "description": "action=search 时使用的 glob 模式，如 '*.py'，默认 '*'",
+            },
+        },
+        "required": ["action", "path"],
+    }
 
     def __init__(self, allowed_roots: list[str] | None = None):
         self.allowed_roots = [Path(r).resolve() for r in (allowed_roots or [Path.home()])]
@@ -96,6 +135,21 @@ class ShellTool(BaseTool):
     description = "执行 shell 命令（白名单校验、UI 确认、超时限制、全量审计）"
     requires_approval = True
 
+    parameters = {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "要执行的 shell 命令，如 'ls -la /tmp'。禁止危险命令（rm -rf、mkfs、dd 等）",
+            },
+            "cwd": {
+                "type": "string",
+                "description": "可选：命令执行的工作目录",
+            },
+        },
+        "required": ["command"],
+    }
+
     def __init__(self, security, approval_callback=None):
         self.security = security
         self.approval_callback = approval_callback  # 异步回调，返回 bool
@@ -117,13 +171,16 @@ class ShellTool(BaseTool):
             }
 
         # 需要确认 → 触发 IPC
+        # 兼容同步/异步回调：生产路径是 Electron 主进程的异步 IPC（返回 coroutine），
+        # 评测/脚本路径常传同步 lambda（直接返回 bool）。统一在此归一化为 bool。
         approved = False
         if self.approval_callback:
             try:
-                approved = await asyncio.wait_for(
-                    self.approval_callback({"command": command, "cwd": cwd}),
-                    timeout=60.0,
-                )
+                cb_result = self.approval_callback({"command": command, "cwd": cwd})
+                if asyncio.iscoroutine(cb_result):
+                    approved = await asyncio.wait_for(cb_result, timeout=60.0)
+                else:
+                    approved = bool(cb_result)
             except asyncio.TimeoutError:
                 approved = False
         else:
@@ -154,6 +211,21 @@ class KnowledgeTool(BaseTool):
     description = "企业知识库 RAG 检索（带引用溯源：文档名 + 页码 + 相关度）"
     requires_approval = False
 
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "检索查询语句，应使用自然语言描述要查找的内容",
+            },
+            "top_k": {
+                "type": "integer",
+                "description": "返回的最相关结果条数，默认 5",
+            },
+        },
+        "required": ["query"],
+    }
+
     def __init__(self, rag_pipeline):
         self.rag = rag_pipeline
 
@@ -162,6 +234,15 @@ class KnowledgeTool(BaseTool):
         top_k = arguments.get("top_k", 5)
         if not query:
             return {"success": False, "error": "query required"}
+        if self.rag is None:
+            # 工具保持注册（而非为 None 被过滤掉），这样模型仍可调用它，
+            # 只是得到明确告知，而不是「没有这个工具」导致它瞎编答案。
+            return {
+                "success": False,
+                "error": "知识库尚未初始化（RAG Pipeline 不可用），无法检索。请提示用户先导入文档。",
+                "results": [],
+                "count": 0,
+            }
         try:
             results = await self.rag.search(query, top_k=top_k)
             return {
@@ -179,8 +260,32 @@ class CodeTool(BaseTool):
     """代码分析工具（Tree-sitter 静态分析，只读）。"""
 
     name = "code"
-    description = "Tree-sitter 静态分析（只读，不执行代码）"
+    description = "代码静态分析（只读，不执行代码）：解析结构、统计复杂度、查找符号"
     requires_approval = False
+
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["analyze", "outline", "complexity"],
+                "description": "analyze 综合分析 / outline 列出函数与类结构 / complexity 估算复杂度",
+            },
+            "path": {
+                "type": "string",
+                "description": "要分析的代码文件路径",
+            },
+            "code": {
+                "type": "string",
+                "description": "可选：直接传入代码片段（不指定 path 时使用）",
+            },
+            "language": {
+                "type": "string",
+                "description": "代码语言，如 python / typescript / javascript",
+            },
+        },
+        "required": ["action"],
+    }
 
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         # MVP：占位实现，Phase 3 接入 Tree-sitter
@@ -195,8 +300,24 @@ class BrowserTool(BaseTool):
     """浏览器自动化工具（Playwright，来源白名单）。"""
 
     name = "browser"
-    description = "Playwright 自动化（来源白名单校验）"
+    description = "网页浏览与抓取（来源白名单校验）：打开页面、提取正文"
     requires_approval = False
+
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["open", "extract"],
+                "description": "open 打开页面 / extract 提取正文内容",
+            },
+            "url": {
+                "type": "string",
+                "description": "目标网页 URL，必须在来源白名单内",
+            },
+        },
+        "required": ["action", "url"],
+    }
 
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         # MVP：占位，Phase 3 接入 Playwright
@@ -221,7 +342,9 @@ def create_tools(
     return {
         "filesystem": FilesystemTool(allowed_roots=allowed_root_dirs),
         "shell": ShellTool(sec, approval_callback=approval_callback),
-        "knowledge": KnowledgeTool(rag_pipeline) if rag_pipeline else None,
+        # 始终注册 knowledge：未接入 RAG 时由工具自身返回明确提示，
+        # 而不是让工具凭空消失（模型会因此不知道知识库功能的存在）。
+        "knowledge": KnowledgeTool(rag_pipeline),
         "code": CodeTool(),
         "browser": BrowserTool(),
     }

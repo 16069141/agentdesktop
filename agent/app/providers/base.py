@@ -89,9 +89,13 @@ class OpenAICompatibleProvider(BaseProvider):
         if self._client is None:
             try:
                 from openai import AsyncOpenAI
+                # 创建自定义 httpx 客户端，禁用环境变量代理（避免企业代理干扰本地 Ollama）
+                import httpx2
+                http_client = httpx2.AsyncClient(trust_env=False)
                 self._client = AsyncOpenAI(
                     base_url=self.base_url,
                     api_key=self.api_key,
+                    http_client=http_client,
                 )
             except ImportError:
                 logger.warning(

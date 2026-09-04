@@ -92,9 +92,41 @@ class ContextManager:
                 else:
                     break
 
+        # 5) 清理孤儿 tool 消息。
+        #    上面的滑动窗口/预算压缩是按条从头丢弃的，有可能把带 tool_calls 的
+        #    assistant 消息丢掉、却留下它对应的 role="tool" 消息。OpenAI 兼容接口
+        #    对这种「tool 消息没有前置 tool_calls」的情况是直接 400 报错的，
+        #    因此在返回前必须把孤儿 tool 消息一并剔除。
+        cleaned: List[Dict[str, Any]] = []
+        pending_tool_ids: set[str] = set()
+        for m in truncated_messages:
+            role = m.get("role", "")
+            if role == "assistant" and m.get("tool_calls"):
+                pending_tool_ids = {
+                    tc.get("id", "") for tc in m.get("tool_calls", []) if tc.get("id")
+                }
+                cleaned.append(m)
+                continue
+            if role == "tool":
+                tool_call_id = m.get("tool_call_id", "")
+                # 该 tool 消息还有对应的 tool_calls 才保留
+                if tool_call_id and tool_call_id in pending_tool_ids:
+                    cleaned.append(m)
+                    pending_tool_ids.discard(tool_call_id)
+                elif not tool_call_id:
+                    # 拿不到 id 时无法判定，保守丢弃以避免 400
+                    logger.warning("[context] 丢弃缺少 tool_call_id 的 tool 消息")
+                continue
+            cleaned.append(m)
+
+        if len(cleaned) != len(truncated_messages):
+            logger.warning(
+                f"[context] 清理孤儿 tool 消息: {len(truncated_messages)} -> {len(cleaned)}"
+            )
+
         return {
             "system": system_prompt,
-            "messages": truncated_messages,
+            "messages": cleaned,
             "rag_context": rag_text,
             "token_usage": {
                 "system": sys_tokens,

@@ -110,7 +110,6 @@ class ShellSecurity:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
-                timeout=self.max_timeout_sec,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.max_timeout_sec)
