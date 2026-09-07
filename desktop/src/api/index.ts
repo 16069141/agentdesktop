@@ -72,14 +72,14 @@ export const api = {
     list: () => request<any[]>('GET', '/api/conversations'),
     create: (data: { title: string; modelId: string }) =>
       request<any>('POST', '/api/conversations', { body: data }),
-    get: (id: string) => request<any>('GET', `/api/conversations/${id}`),
-    delete: (id: string) => request<any>('DELETE', `/api/conversations/${id}`),
+    get: (id: string) => request<any>('GET', `/api/conversations/${encodeURIComponent(id)}`),
+    delete: (id: string) => request<any>('DELETE', `/api/conversations/${encodeURIComponent(id)}`),
     update: (id: string, data: { title?: string; modelId?: string }) =>
-      request<any>('PATCH', `/api/conversations/${id}`, { body: data }),
+      request<any>('PATCH', `/api/conversations/${encodeURIComponent(id)}`, { body: data }),
     generateTitle: (id: string, message: string, modelId?: string) =>
-      request<any>('POST', `/api/conversations/${id}/generate-title`, { body: { message, modelId } }),
+      request<any>('POST', `/api/conversations/${encodeURIComponent(id)}/generate-title`, { body: { message, modelId } }),
     export: (id: string, format: 'md' | 'json') =>
-      request<string>('POST', `/api/conversations/${id}/export?format=${format}`),
+      request<string>('POST', `/api/conversations/${encodeURIComponent(id)}/export?format=${format}`),
   },
 
   // 模型
@@ -93,13 +93,13 @@ export const api = {
     create: (data: Record<string, unknown>) =>
       request<any>('POST', '/api/llm-servers', { body: data }),
     update: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/llm-servers/${id}`, { body: data }),
-    remove: (id: string) => request<any>('DELETE', `/api/llm-servers/${id}`),
-    test: (id: string) => request<any>('POST', `/api/llm-servers/${id}/test`),
+      request<any>('PUT', `/api/llm-servers/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/llm-servers/${encodeURIComponent(id)}`),
+    test: (id: string) => request<any>('POST', `/api/llm-servers/${encodeURIComponent(id)}/test`),
     syncModels: (id: string) =>
-      request<any>('POST', `/api/llm-servers/${id}/sync-models`),
-    models: (id: string) => request<any>('GET', `/api/llm-servers/${id}/models`),
-    getApiKey: (id: string) => request<any>('GET', `/api/llm-servers/${id}/api-key`),
+      request<any>('POST', `/api/llm-servers/${encodeURIComponent(id)}/sync-models`),
+    models: (id: string) => request<any>('GET', `/api/llm-servers/${encodeURIComponent(id)}/models`),
+    getApiKey: (id: string) => request<any>('GET', `/api/llm-servers/${encodeURIComponent(id)}/api-key`),
   },
 
   // 知识库连接（局域网/互联网 RAG、LLM Wiki 等）
@@ -109,14 +109,14 @@ export const api = {
     create: (data: Record<string, unknown>) =>
       request<any>('POST', '/api/knowledge-servers', { body: data }),
     update: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/knowledge-servers/${id}`, { body: data }),
-    remove: (id: string) => request<any>('DELETE', `/api/knowledge-servers/${id}`),
-    test: (id: string) => request<any>('POST', `/api/knowledge-servers/${id}/test`),
+      request<any>('PUT', `/api/knowledge-servers/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/knowledge-servers/${encodeURIComponent(id)}`),
+    test: (id: string) => request<any>('POST', `/api/knowledge-servers/${encodeURIComponent(id)}/test`),
     search: (id: string, query: string, topK = 5) =>
-      request<any>('POST', `/api/knowledge-servers/${id}/search`, {
+      request<any>('POST', `/api/knowledge-servers/${encodeURIComponent(id)}/search`, {
         body: { query, top_k: topK },
       }),
-    spaces: (id: string) => request<any>('GET', `/api/knowledge-servers/${id}/spaces`),
+    spaces: (id: string) => request<any>('GET', `/api/knowledge-servers/${encodeURIComponent(id)}/spaces`),
   },
 
   // 工具
@@ -130,11 +130,11 @@ export const api = {
       ),
     stats: () => request<any>('GET', '/api/mcp/stats'),
     enable: (toolset: string) =>
-      request<any>('POST', `/api/mcp/${toolset}/enable`),
+      request<any>('POST', `/api/mcp/${encodeURIComponent(toolset)}/enable`),
     disable: (toolset: string) =>
-      request<any>('POST', `/api/mcp/${toolset}/disable`),
+      request<any>('POST', `/api/mcp/${encodeURIComponent(toolset)}/disable`),
     approve: (toolset: string, callId: string, approved: boolean) =>
-      request<any>('POST', `/api/mcp/${toolset}/approve`, {
+      request<any>('POST', `/api/mcp/${encodeURIComponent(toolset)}/approve`, {
         body: { call_id: callId, approved },
       }),
     connectors: () => request<any[]>('GET', '/api/mcp/connectors'),
@@ -145,9 +145,9 @@ export const api = {
     logs: (params?: { conversation_id?: string; tool_name?: string; actor?: string; limit?: number }) =>
       request<any[]>('GET', `/api/audit/logs${params ? `?${new URLSearchParams(params as any)}` : ''}`),
     replay: (conversationId: string) =>
-      request<any[]>('GET', `/api/audit/replay?conversation_id=${conversationId}`),
+      request<any[]>('GET', `/api/audit/replay?conversation_id=${encodeURIComponent(conversationId)}`),
     replayStats: (conversationId: string) =>
-      request<any>('GET', `/api/audit/replay/stats?conversation_id=${conversationId}`),
+      request<any>('GET', `/api/audit/replay/stats?conversation_id=${encodeURIComponent(conversationId)}`),
     breakers: () => request<any[]>('GET', '/api/audit/breakers'),
     resetBreaker: (toolName?: string) =>
       request<any>('POST', '/api/audit/breakers/reset', {
@@ -164,9 +164,9 @@ export const api = {
       request<any>('POST', '/api/skills/market/search', { body: { query } }),
     install: (data: { source: string; path?: string; git_url?: string; market_id?: string; query?: string }) =>
       request<any>('POST', '/api/skills/install', { body: data }),
-    enable: (id: string) => request<any>('POST', `/api/skills/${id}/enable`),
-    disable: (id: string) => request<any>('POST', `/api/skills/${id}/disable`),
-    remove: (id: string) => request<any>('DELETE', `/api/skills/${id}`),
+    enable: (id: string) => request<any>('POST', `/api/skills/${encodeURIComponent(id)}/enable`),
+    disable: (id: string) => request<any>('POST', `/api/skills/${encodeURIComponent(id)}/disable`),
+    remove: (id: string) => request<any>('DELETE', `/api/skills/${encodeURIComponent(id)}`),
   },
 
   // 企业系统连接器（Phase B P1：ERP/CRM/OA）
@@ -176,11 +176,11 @@ export const api = {
     create: (data: Record<string, unknown>) =>
       request<any>('POST', '/api/connectors', { body: data }),
     update: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/connectors/${id}`, { body: data }),
-    remove: (id: string) => request<any>('DELETE', `/api/connectors/${id}`),
-    test: (id: string) => request<any>('POST', `/api/connectors/${id}/test`),
+      request<any>('PUT', `/api/connectors/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/connectors/${encodeURIComponent(id)}`),
+    test: (id: string) => request<any>('POST', `/api/connectors/${encodeURIComponent(id)}/test`),
     invoke: (id: string, operation: string, params: Record<string, unknown>) =>
-      request<any>('POST', `/api/connectors/${id}/invoke`, {
+      request<any>('POST', `/api/connectors/${encodeURIComponent(id)}/invoke`, {
         body: { operation, params },
       }),
   },
@@ -191,19 +191,19 @@ export const api = {
     create: (data: Record<string, unknown>) =>
       request<any>('POST', '/api/db-connectors', { body: data }),
     update: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/db-connectors/${id}`, { body: data }),
-    remove: (id: string) => request<any>('DELETE', `/api/db-connectors/${id}`),
-    test: (id: string) => request<any>('POST', `/api/db-connectors/${id}/test`),
+      request<any>('PUT', `/api/db-connectors/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/db-connectors/${encodeURIComponent(id)}`),
+    test: (id: string) => request<any>('POST', `/api/db-connectors/${encodeURIComponent(id)}/test`),
     query: (id: string, sql: string) =>
-      request<any>('POST', `/api/db-connectors/${id}/query`, { body: { sql } }),
+      request<any>('POST', `/api/db-connectors/${encodeURIComponent(id)}/query`, { body: { sql } }),
   },
 
   // Webhook 事件（Phase B P1，P3 工作流触发器）
   webhooks: {
     events: (hookId?: string, limit = 50) =>
-      request<any[]>('GET', `/api/webhooks/events${hookId ? `?hook_id=${hookId}` : ''}&limit=${limit}`),
+      request<any[]>('GET', `/api/webhooks/events?${hookId ? `hook_id=${encodeURIComponent(hookId)}&` : ''}limit=${limit}`),
     send: (hookId: string, payload: Record<string, unknown>) =>
-      request<any>('POST', `/api/webhooks/${hookId}`, { body: payload }),
+      request<any>('POST', `/api/webhooks/${encodeURIComponent(hookId)}`, { body: payload }),
   },
 
   // 项目空间（Phase B P2：多人协同）
@@ -211,37 +211,37 @@ export const api = {
     list: () => request<any[]>('GET', '/api/projects'),
     create: (data: { name: string; description?: string; config_share?: Record<string, unknown> }) =>
       request<any>('POST', '/api/projects', { body: data }),
-    get: (id: string) => request<any>('GET', `/api/projects/${id}`),
+    get: (id: string) => request<any>('GET', `/api/projects/${encodeURIComponent(id)}`),
     update: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/projects/${id}`, { body: data }),
-    remove: (id: string) => request<any>('DELETE', `/api/projects/${id}`),
-    members: (id: string) => request<any[]>('GET', `/api/projects/${id}/members`),
+      request<any>('PUT', `/api/projects/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/projects/${encodeURIComponent(id)}`),
+    members: (id: string) => request<any[]>('GET', `/api/projects/${encodeURIComponent(id)}/members`),
     addMember: (id: string, data: { username: string; role: string }) =>
-      request<any>('POST', `/api/projects/${id}/members`, { body: data }),
+      request<any>('POST', `/api/projects/${encodeURIComponent(id)}/members`, { body: data }),
     removeMember: (id: string, username: string) =>
-      request<any>('DELETE', `/api/projects/${id}/members/${username}`),
-    tasks: (id: string) => request<any[]>('GET', `/api/projects/${id}/tasks`),
+      request<any>('DELETE', `/api/projects/${encodeURIComponent(id)}/members/${encodeURIComponent(username)}`),
+    tasks: (id: string) => request<any[]>('GET', `/api/projects/${encodeURIComponent(id)}/tasks`),
     createTask: (id: string, data: Record<string, unknown>) =>
-      request<any>('POST', `/api/projects/${id}/tasks`, { body: data }),
+      request<any>('POST', `/api/projects/${encodeURIComponent(id)}/tasks`, { body: data }),
     updateTask: (id: string, taskId: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/projects/${id}/tasks/${taskId}`, { body: data }),
+      request<any>('PUT', `/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}`, { body: data }),
     removeTask: (id: string, taskId: string) =>
-      request<any>('DELETE', `/api/projects/${id}/tasks/${taskId}`),
-    assets: (id: string) => request<any[]>('GET', `/api/projects/${id}/assets`),
+      request<any>('DELETE', `/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}`),
+    assets: (id: string) => request<any[]>('GET', `/api/projects/${encodeURIComponent(id)}/assets`),
     addAsset: (id: string, data: Record<string, unknown>) =>
-      request<any>('POST', `/api/projects/${id}/assets`, { body: data }),
+      request<any>('POST', `/api/projects/${encodeURIComponent(id)}/assets`, { body: data }),
     removeAsset: (id: string, assetId: string) =>
-      request<any>('DELETE', `/api/projects/${id}/assets/${assetId}`),
+      request<any>('DELETE', `/api/projects/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}`),
     searchAssets: (id: string, query: string, topK = 5) =>
-      request<any>('POST', `/api/projects/${id}/assets/search`, {
+      request<any>('POST', `/api/projects/${encodeURIComponent(id)}/assets/search`, {
         body: { query, top_k: topK },
       }),
     configSharing: (id: string) =>
-      request<any>('GET', `/api/projects/${id}/config-sharing`),
+      request<any>('GET', `/api/projects/${encodeURIComponent(id)}/config-sharing`),
     setConfigSharing: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/projects/${id}/config-sharing`, { body: data }),
+      request<any>('PUT', `/api/projects/${encodeURIComponent(id)}/config-sharing`, { body: data }),
     sharedConfig: (id: string) =>
-      request<any>('GET', `/api/projects/${id}/shared-config`),
+      request<any>('GET', `/api/projects/${encodeURIComponent(id)}/shared-config`),
   },
 
   // 自动化工作流（Phase B P3）
@@ -250,13 +250,13 @@ export const api = {
     templates: () => request<any[]>('GET', '/api/workflows/templates'),
     create: (data: Record<string, unknown>) =>
       request<any>('POST', '/api/workflows', { body: data }),
-    get: (id: string) => request<any>('GET', `/api/workflows/${id}`),
+    get: (id: string) => request<any>('GET', `/api/workflows/${encodeURIComponent(id)}`),
     update: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/workflows/${id}`, { body: data }),
-    remove: (id: string) => request<any>('DELETE', `/api/workflows/${id}`),
+      request<any>('PUT', `/api/workflows/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/workflows/${encodeURIComponent(id)}`),
     run: (id: string, payload: Record<string, unknown> = {}) =>
-      request<any>('POST', `/api/workflows/${id}/run`, { body: { payload } }),
-    runs: (id: string) => request<any[]>('GET', `/api/workflows/${id}/runs`),
+      request<any>('POST', `/api/workflows/${encodeURIComponent(id)}/run`, { body: { payload } }),
+    runs: (id: string) => request<any[]>('GET', `/api/workflows/${encodeURIComponent(id)}/runs`),
     allRuns: () => request<any[]>('GET', '/api/workflows/runs'),
   },
 
@@ -265,16 +265,16 @@ export const api = {
     health: () => request<any>('GET', '/api/ops/health'),
     healthCheck: () => request<any>('POST', '/api/ops/health-check'),
     diagnostics: (runId?: string) =>
-      request<any>('GET', `/api/ops/diagnostics${runId ? `?run_id=${runId}` : ''}`),
+      request<any>('GET', `/api/ops/diagnostics${runId ? `?run_id=${encodeURIComponent(runId)}` : ''}`),
     fieldMappings: (connectorId?: string) =>
-      request<any[]>('GET', `/api/field-mappings${connectorId ? `?connector_id=${connectorId}` : ''}`),
+      request<any[]>('GET', `/api/field-mappings${connectorId ? `?connector_id=${encodeURIComponent(connectorId)}` : ''}`),
     createMapping: (data: Record<string, unknown>) =>
       request<any>('POST', '/api/field-mappings', { body: data }),
     updateMapping: (id: string, data: Record<string, unknown>) =>
-      request<any>('PUT', `/api/field-mappings/${id}`, { body: data }),
-    removeMapping: (id: string) => request<any>('DELETE', `/api/field-mappings/${id}`),
+      request<any>('PUT', `/api/field-mappings/${encodeURIComponent(id)}`, { body: data }),
+    removeMapping: (id: string) => request<any>('DELETE', `/api/field-mappings/${encodeURIComponent(id)}`),
     exportUsage: (by: string, days = 30, fmt = 'csv') =>
-      request<any>('GET', `/api/usage/export?by=${by}&days=${days}&fmt=${fmt}`),
+      request<any>('GET', `/api/usage/export?by=${encodeURIComponent(by)}&days=${days}&fmt=${encodeURIComponent(fmt)}`),
   },
 
   // 企业身份与 SSO（Phase B P0）
@@ -282,13 +282,13 @@ export const api = {
     users: () => request<any[]>('GET', '/api/enterprise/users'),
     upsertUser: (data: { username: string; display_name?: string; role?: string; data_scope?: string; department?: string }) =>
       request<any>('POST', '/api/enterprise/users', { body: data }),
-    deleteUser: (id: string) => request<any>('DELETE', `/api/enterprise/users/${id}`),
+    deleteUser: (id: string) => request<any>('DELETE', `/api/enterprise/users/${encodeURIComponent(id)}`),
     me: (username?: string) =>
-      request<any>('GET', `/api/enterprise/me${username ? `?username=${username}` : ''}`),
+      request<any>('GET', `/api/enterprise/me${username ? `?username=${encodeURIComponent(username)}` : ''}`),
     ssoProviders: () => request<any>('GET', '/api/enterprise/sso/providers'),
     saveSso: (data: Record<string, unknown>) =>
       request<any>('PUT', '/api/enterprise/sso/providers', { body: data }),
-    deleteSso: (name: string) => request<any>('DELETE', `/api/enterprise/sso/providers/${name}`),
+    deleteSso: (name: string) => request<any>('DELETE', `/api/enterprise/sso/providers/${encodeURIComponent(name)}`),
   },
 
   // 设置
@@ -301,7 +301,7 @@ export const api = {
   // 用量
   usage: {
     get: (period?: string) =>
-      request<any>('GET', `/api/usage${period ? `?period=${period}` : ''}`),
+      request<any>('GET', `/api/usage${period ? `?period=${encodeURIComponent(period)}` : ''}`),
   },
 
   // 文件上传与解析
