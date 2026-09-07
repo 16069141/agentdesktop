@@ -3,10 +3,10 @@
 接口：
   GET  /api/mcp/tools                    — 统一工具列表（tool / skill / mcp / connector 四类）
        ?kind=&source=&enabled=           — 筛选
-  GET  /api/mcp/tools/{tool_id}          — 单工具详情（含元数据）
-  POST /api/mcp/{toolset}/enable|disable — 启用 / 禁用
+  GET  /api/mcp/tools/{tool_id:path}          — 单工具详情（含元数据）
+  POST /api/mcp/{toolset:path}/enable|disable — 启用 / 禁用
   GET  /api/mcp/connectors               — 连接器注册表列表
-  POST /api/mcp/connectors/{id}/invoke   — 调用连接器（带审计 + 身份透传）
+  POST /api/mcp/connectors/{id:path}/invoke   — 调用连接器（带审计 + 身份透传）
   GET  /api/mcp/stats                    — 注册表统计（按 kind 聚合）
   POST /api/mcp/audit                    — 审计事件写入
 """
@@ -31,7 +31,7 @@ async def list_tools(kind: Optional[str] = None,
     )
 
 
-@router.get("/tools/{tool_id}")
+@router.get("/tools/{tool_id:path}")
 async def get_tool(tool_id: str):
     tool = await tool_registry_repo.get(tool_id)
     if not tool:
@@ -55,7 +55,7 @@ async def stats():
             "byKind": by_kind, "bySource": by_source}
 
 
-@router.post("/{toolset}/enable")
+@router.post("/{toolset:path}/enable")
 async def enable_tool(toolset: str):
     """来源白名单校验后启用工具。
 
@@ -72,7 +72,7 @@ async def enable_tool(toolset: str):
     return updated or {}
 
 
-@router.post("/{toolset}/disable")
+@router.post("/{toolset:path}/disable")
 async def disable_tool(toolset: str):
     tool = await tool_registry_repo.get(toolset)
     if not tool:
@@ -93,7 +93,7 @@ class ConnectorInvokeRequest(BaseModel):
     params: dict = {}
 
 
-@router.post("/connectors/{connector_id}/invoke")
+@router.post("/connectors/{connector_id:path}/invoke")
 async def invoke_connector(connector_id: str, req: ConnectorInvokeRequest, request: Request):
     from ..auth import parse_identity_headers
     connector = get_connector_registry().get(connector_id)

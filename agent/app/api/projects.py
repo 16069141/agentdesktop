@@ -151,7 +151,7 @@ async def create_project(body: ProjectCreate, request: Request):
     return project
 
 
-@router.get("/{project_id}")
+@router.get("/{project_id:path}")
 async def get_project(project_id: str, request: Request):
     project = await project_repo.get(project_id)
     if not project:
@@ -166,7 +166,7 @@ async def get_project(project_id: str, request: Request):
     return project
 
 
-@router.put("/{project_id}")
+@router.put("/{project_id:path}")
 async def update_project(project_id: str, body: ProjectUpdate, request: Request):
     project = await project_repo.get(project_id)
     if not project:
@@ -186,7 +186,7 @@ async def update_project(project_id: str, body: ProjectUpdate, request: Request)
     return updated
 
 
-@router.delete("/{project_id}")
+@router.delete("/{project_id:path}")
 async def delete_project(project_id: str, request: Request):
     project = await project_repo.get(project_id)
     if not project:
@@ -199,7 +199,7 @@ async def delete_project(project_id: str, request: Request):
 
 # ============ 成员 ============
 
-@router.get("/{project_id}/members")
+@router.get("/{project_id:path}/members")
 async def list_members(project_id: str, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -208,7 +208,7 @@ async def list_members(project_id: str, request: Request):
     return await project_member_repo.list(project_id)
 
 
-@router.post("/{project_id}/members")
+@router.post("/{project_id:path}/members")
 async def add_member(project_id: str, body: MemberAdd, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -221,7 +221,7 @@ async def add_member(project_id: str, body: MemberAdd, request: Request):
     return await project_member_repo.add(project_id, body.username.strip(), body.role)
 
 
-@router.delete("/{project_id}/members/{username}")
+@router.delete("/{project_id:path}/members/{username}")
 async def remove_member(project_id: str, username: str, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -233,7 +233,7 @@ async def remove_member(project_id: str, username: str, request: Request):
 
 # ============ 任务 ============
 
-@router.get("/{project_id}/tasks")
+@router.get("/{project_id:path}/tasks")
 async def list_tasks(project_id: str, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -242,7 +242,7 @@ async def list_tasks(project_id: str, request: Request):
     return await project_task_repo.list(project_id)
 
 
-@router.post("/{project_id}/tasks")
+@router.post("/{project_id:path}/tasks")
 async def create_task(project_id: str, body: TaskCreate, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -263,7 +263,7 @@ async def create_task(project_id: str, body: TaskCreate, request: Request):
     return task
 
 
-@router.put("/{project_id}/tasks/{task_id}")
+@router.put("/{project_id:path}/tasks/{task_id}")
 async def update_task(project_id: str, task_id: str, body: TaskUpdate, request: Request):
     task = await project_task_repo.get(task_id)
     if not task or task["projectId"] != project_id:
@@ -283,7 +283,7 @@ async def update_task(project_id: str, task_id: str, body: TaskUpdate, request: 
     return await project_task_repo.update(task_id, fields)
 
 
-@router.delete("/{project_id}/tasks/{task_id}")
+@router.delete("/{project_id:path}/tasks/{task_id}")
 async def delete_task(project_id: str, task_id: str, request: Request):
     task = await project_task_repo.get(task_id)
     if not task or task["projectId"] != project_id:
@@ -296,7 +296,7 @@ async def delete_task(project_id: str, task_id: str, request: Request):
 
 # ============ 资产库（服务端 RAG） ============
 
-@router.get("/{project_id}/assets")
+@router.get("/{project_id:path}/assets")
 async def list_assets(project_id: str, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -305,7 +305,7 @@ async def list_assets(project_id: str, request: Request):
     return await project_asset_repo.list(project_id)
 
 
-@router.post("/{project_id}/assets")
+@router.post("/{project_id:path}/assets")
 async def create_asset(project_id: str, body: AssetCreate, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -324,7 +324,7 @@ async def create_asset(project_id: str, body: AssetCreate, request: Request):
     return asset
 
 
-@router.delete("/{project_id}/assets/{asset_id}")
+@router.delete("/{project_id:path}/assets/{asset_id}")
 async def delete_asset(project_id: str, asset_id: str, request: Request):
     asset = await project_asset_repo.get(asset_id)
     if not asset or asset["projectId"] != project_id:
@@ -335,7 +335,7 @@ async def delete_asset(project_id: str, asset_id: str, request: Request):
     return {"ok": True}
 
 
-@router.post("/{project_id}/assets/search")
+@router.post("/{project_id:path}/assets/search")
 async def search_assets(project_id: str, body: AssetSearch, request: Request):
     """资产库服务端 RAG 检索：遍历项目资产，关联知识库连接的 search()。
 
@@ -403,7 +403,7 @@ async def _search_knowledge(server_id: str, query: str, top_k: int) -> list[dict
 
 # ============ 配置共享 ============
 
-@router.get("/{project_id}/config-sharing")
+@router.get("/{project_id:path}/config-sharing")
 async def get_config_sharing(project_id: str, request: Request):
     project = await project_repo.get(project_id)
     if not project:
@@ -413,7 +413,7 @@ async def get_config_sharing(project_id: str, request: Request):
     return project["configShare"]
 
 
-@router.put("/{project_id}/config-sharing")
+@router.put("/{project_id:path}/config-sharing")
 async def set_config_sharing(project_id: str, body: dict, request: Request):
     if not await project_repo.get(project_id):
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -424,7 +424,7 @@ async def set_config_sharing(project_id: str, body: dict, request: Request):
     return updated["configShare"]
 
 
-@router.get("/{project_id}/shared-config")
+@router.get("/{project_id:path}/shared-config")
 async def shared_config(project_id: str, request: Request):
     """共享配置聚合视图：启用中的 Skills / 连接器 / Agent 设置（全员可读）。"""
     project = await project_repo.get(project_id)

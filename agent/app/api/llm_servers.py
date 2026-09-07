@@ -12,6 +12,7 @@
 协议说明：Ollama 与 OpenAI 兼容服务统一走 OpenAI 兼容端点（/v1/models、
 /v1/chat/completions）；protocol=ollama 时自动补 /v1。
 """
+
 import json
 import logging
 import time
@@ -66,13 +67,20 @@ def _filter_by_whitelist(models: list[str], allowed: list[str]) -> list[str]:
     return [m for m in models if m in allowed_set]
 
 
-async def _probe_models(base_url: str, api_key: str = "", allowed_models: list[str] = [], timeout: float = PROBE_TIMEOUT) -> list[str]:
+async def _probe_models(
+    base_url: str,
+    api_key: str = "",
+    allowed_models: list[str] = [],
+    timeout: float = PROBE_TIMEOUT,
+) -> list[str]:
     """向 /v1/models 探测模型列表（绕过环境代理，避免企业代理干扰内网）。"""
     url = normalize_v1_url(base_url).rstrip("/") + "/models"
     headers = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    async with httpx.AsyncClient(trust_env=False, timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        trust_env=False, timeout=timeout, headers=headers
+    ) as client:
         resp = await client.get(url)
         resp.raise_for_status()
         data = resp.json()
@@ -127,20 +135,22 @@ async def create_server(body: ServerCreate):
             logger.warning(f"[llm-servers] keychain 不可用，明文存储（不推荐）: {exc}")
             api_key_ref = None
 
-    server = await repo.create({
-        "id": body.id,
-        "name": body.name,
-        "base_url": normalize_v1_url(body.base_url),
-        "protocol": body.protocol,
-        "api_key_ref": api_key_ref,
-        "timeout_sec": body.timeout_sec,
-        "enabled": body.enabled,
-        "allowed_models": body.allowed_models or [],
-    })
+    server = await repo.create(
+        {
+            "id": body.id,
+            "name": body.name,
+            "base_url": normalize_v1_url(body.base_url),
+            "protocol": body.protocol,
+            "api_key_ref": api_key_ref,
+            "timeout_sec": body.timeout_sec,
+            "enabled": body.enabled,
+            "allowed_models": body.allowed_models or [],
+        }
+    )
     return _mask(server)
 
 
-@router.put("/{server_id}")
+@router.put("/{server_id:path}")
 async def update_server(server_id: str, body: ServerUpdate):
     server = await repo.get(server_id)
     if not server:
@@ -153,7 +163,9 @@ async def update_server(server_id: str, body: ServerUpdate):
         fields["base_url"] = normalize_v1_url(body.base_url)
     if body.protocol is not None:
         if body.protocol not in ("ollama", "openai"):
-            raise HTTPException(status_code=400, detail="protocol 仅支持 ollama / openai")
+            raise HTTPException(
+                status_code=400, detail="protocol 仅支持 ollama / openai"
+            )
         fields["protocol"] = body.protocol
     if body.timeout_sec is not None:
         fields["timeout_sec"] = body.timeout_sec
@@ -173,7 +185,7 @@ async def update_server(server_id: str, body: ServerUpdate):
     return _mask(updated) if updated else None
 
 
-@router.delete("/{server_id}")
+@router.delete("/{server_id:path}")
 async def delete_server(server_id: str):
     server = await repo.get(server_id)
     if not server:
@@ -185,7 +197,7 @@ async def delete_server(server_id: str):
     return {"ok": True}
 
 
-@router.post("/{server_id}/test")
+@router.post("/{server_id:path}/test")
 async def test_server(server_id: str):
     server = await repo.get(server_id)
     if not server:
@@ -196,7 +208,12 @@ async def test_server(server_id: str):
         api_key = keychain.retrieve_sync(ref) or ""
     started = time.time()
     try:
-        models = await _probe_models(server["base_url"], api_key=api_key, allowed_models=server.get("allowed_models", []), timeout=PROBE_TIMEOUT)
+        models = await _probe_models(
+            server["base_url"],
+            api_key=api_key,
+            allowed_models=server.get("allowed_models", []),
+            timeout=PROBE_TIMEOUT,
+        )
         latency_ms = int((time.time() - started) * 1000)
         await repo.save_health(server_id, True)
         return {
@@ -210,7 +227,7 @@ async def test_server(server_id: str):
         return {"ok": False, "error": str(exc)}
 
 
-@router.post("/{server_id}/sync-models")
+@router.post("/{server_id:path}/sync-models")
 async def sync_models(server_id: str):
     server = await repo.get(server_id)
     if not server:
@@ -220,7 +237,12 @@ async def sync_models(server_id: str):
     if ref:
         api_key = keychain.retrieve_sync(ref) or ""
     try:
-        models = await _probe_models(server["base_url"], api_key=api_key, allowed_models=server.get("allowed_models", []), timeout=PROBE_TIMEOUT)
+        models = await _probe_models(
+            server["base_url"],
+            api_key=api_key,
+            allowed_models=server.get("allowed_models", []),
+            timeout=PROBE_TIMEOUT,
+        )
         await repo.save_models_cache(server_id, models)
         await repo.save_health(server_id, True)
         return {"ok": True, "models": models, "count": len(models)}
@@ -229,7 +251,7 @@ async def sync_models(server_id: str):
         raise HTTPException(status_code=502, detail=f"同步模型列表失败: {exc}")
 
 
-@router.get("/{server_id}/models")
+@router.get("/{server_id:path}/models")
 async def get_models(server_id: str):
     server = await repo.get(server_id)
     if not server:
@@ -237,7 +259,7 @@ async def get_models(server_id: str):
     return {"server_id": server_id, "models": server.get("models_cache") or []}
 
 
-@router.get("/{server_id}/api-key")
+@router.get("/{server_id:path}/api-key")
 async def get_api_key(server_id: str):
     """返回真实 API Key（编辑时回填用；仅本地回环 + Token 鉴权可访问）。"""
     server = await repo.get(server_id)

@@ -114,7 +114,7 @@ async def create_server(body: ServerCreate):
     return _mask(server)
 
 
-@router.put("/{server_id}")
+@router.put("/{server_id:path}")
 async def update_server(server_id: str, body: ServerUpdate):
     server = await repo.get(server_id)
     if not server:
@@ -151,7 +151,7 @@ async def update_server(server_id: str, body: ServerUpdate):
     return _mask(updated) if updated else None
 
 
-@router.delete("/{server_id}")
+@router.delete("/{server_id:path}")
 async def delete_server(server_id: str):
     server = await repo.get(server_id)
     if not server:
@@ -163,7 +163,7 @@ async def delete_server(server_id: str):
     return {"ok": True}
 
 
-@router.post("/{server_id}/test")
+@router.post("/{server_id:path}/test")
 async def test_server(server_id: str):
     server = await repo.get(server_id)
     if not server:
@@ -177,7 +177,7 @@ async def test_server(server_id: str):
     return {"ok": ok}
 
 
-@router.post("/{server_id}/search")
+@router.post("/{server_id:path}/search")
 async def search_server(server_id: str, body: dict):
     query = (body.get("query") or "").strip()
     top_k = int(body.get("top_k") or 5)
@@ -194,7 +194,7 @@ async def search_server(server_id: str, body: dict):
     return {"server_id": server_id, "query": query, "results": results}
 
 
-@router.get("/{server_id}/spaces")
+@router.get("/{server_id:path}/spaces")
 async def list_spaces(server_id: str):
     """列出可用知识库/空间（Dify 数据集、Confluence 空间等）。"""
     server = await repo.get(server_id)

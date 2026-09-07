@@ -283,7 +283,7 @@ async def create_mapping(body: MappingCreate):
     })
 
 
-@router.put("/api/field-mappings/{mapping_id}")
+@router.put("/api/field-mappings/{mapping_id:path}")
 async def update_mapping(mapping_id: str, body: MappingUpdate):
     from ..storage import field_mapping_repo
     mapping = await field_mapping_repo.get(mapping_id)
@@ -303,7 +303,7 @@ async def update_mapping(mapping_id: str, body: MappingUpdate):
     return await field_mapping_repo.update(mapping_id, fields)
 
 
-@router.delete("/api/field-mappings/{mapping_id}")
+@router.delete("/api/field-mappings/{mapping_id:path}")
 async def delete_mapping(mapping_id: str):
     from ..storage import field_mapping_repo
     if not await field_mapping_repo.get(mapping_id):

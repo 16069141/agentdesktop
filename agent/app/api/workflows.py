@@ -197,7 +197,7 @@ async def create_workflow(body: WorkflowCreate, request: Request):
     return wf
 
 
-@router.get("/{workflow_id}")
+@router.get("/{workflow_id:path}")
 async def get_workflow(workflow_id: str):
     wf = await workflow_repo.get(workflow_id)
     if not wf:
@@ -206,7 +206,7 @@ async def get_workflow(workflow_id: str):
     return wf
 
 
-@router.put("/{workflow_id}")
+@router.put("/{workflow_id:path}")
 async def update_workflow(workflow_id: str, body: WorkflowUpdate):
     wf = await workflow_repo.get(workflow_id)
     if not wf:
@@ -221,7 +221,7 @@ async def update_workflow(workflow_id: str, body: WorkflowUpdate):
     return await workflow_repo.update(workflow_id, fields)
 
 
-@router.delete("/{workflow_id}")
+@router.delete("/{workflow_id:path}")
 async def delete_workflow(workflow_id: str):
     wf = await workflow_repo.get(workflow_id)
     if not wf:
@@ -230,7 +230,7 @@ async def delete_workflow(workflow_id: str):
     return {"ok": True, "deleted": workflow_id}
 
 
-@router.post("/{workflow_id}/run")
+@router.post("/{workflow_id:path}/run")
 async def run_workflow(workflow_id: str, body: WorkflowRunRequest, request: Request):
     """手动触发：同步执行并返回 run 摘要（测试/调试用）。"""
     wf = await workflow_repo.get(workflow_id)
@@ -244,6 +244,6 @@ async def run_workflow(workflow_id: str, body: WorkflowRunRequest, request: Requ
     return result
 
 
-@router.get("/{workflow_id}/runs")
+@router.get("/{workflow_id:path}/runs")
 async def workflow_runs(workflow_id: str, limit: int = 50):
     return await workflow_run_repo.list_by_workflow(workflow_id, limit=limit)

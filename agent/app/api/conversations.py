@@ -2,10 +2,10 @@
 
 GET    /api/conversations          列出全部会话
 POST   /api/conversations          新建会话
-GET    /api/conversations/{id}     获取会话及其消息
-DELETE /api/conversations/{id}     删除会话（级联删除消息）
-PATCH  /api/conversations/{id}     重命名会话
-POST   /api/conversations/{id}/generate-title  AI 自动提炼对话标题
+GET    /api/conversations/{id:path}     获取会话及其消息
+DELETE /api/conversations/{id:path}     删除会话（级联删除消息）
+PATCH  /api/conversations/{id:path}     重命名会话
+POST   /api/conversations/{id:path}/generate-title  AI 自动提炼对话标题
 """
 from typing import Optional
 
@@ -45,7 +45,7 @@ async def create_conversation(req: CreateConversationRequest):
     return await conv_repo.create(title=req.title or "新对话", model_id=req.modelId)
 
 
-@router.get("/{conv_id}")
+@router.get("/{conv_id:path}")
 async def get_conversation(conv_id: str):
     conv = await conv_repo.get(conv_id)
     if conv is None:
@@ -53,7 +53,7 @@ async def get_conversation(conv_id: str):
     return conv
 
 
-@router.delete("/{conv_id}")
+@router.delete("/{conv_id:path}")
 async def delete_conversation(conv_id: str):
     conv = await conv_repo.get(conv_id)
     if conv is None:
@@ -62,7 +62,7 @@ async def delete_conversation(conv_id: str):
     return {"ok": True, "id": conv_id, "deletedMessages": len(conv.get("messages", []))}
 
 
-@router.patch("/{conv_id}")
+@router.patch("/{conv_id:path}")
 async def update_conversation(conv_id: str, req: UpdateConversationRequest):
     conv = await conv_repo.get(conv_id)
     if conv is None:
@@ -73,7 +73,7 @@ async def update_conversation(conv_id: str, req: UpdateConversationRequest):
     return updated
 
 
-@router.post("/{conv_id}/export")
+@router.post("/{conv_id:path}/export")
 async def export_conversation(conv_id: str, format: str = "md"):
     """导出会话为 Markdown / JSON（P1-2 修复：补齐前端已声明但后端缺失的接口）。
 
@@ -123,7 +123,7 @@ async def export_conversation(conv_id: str, format: str = "md"):
     return {"ok": True, "format": "md", "markdown": "\n".join(lines), "filename": f"{title}.md"}
 
 
-@router.post("/{conv_id}/generate-title")
+@router.post("/{conv_id:path}/generate-title")
 async def generate_title(conv_id: str, req: GenerateTitleRequest):
     """根据用户第一条消息，调用 LLM 自动提炼简短对话标题。"""
     conv = await conv_repo.get(conv_id)

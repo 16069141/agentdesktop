@@ -3,13 +3,13 @@
 接口：
   GET    /api/enterprise/users            — 企业账号列表
   POST   /api/enterprise/users            — 新增/编辑企业账号
-  DELETE /api/enterprise/users/{id}       — 删除企业账号
+  DELETE /api/enterprise/users/{id:path}       — 删除企业账号
   GET    /api/enterprise/me?username=     — 查询身份（用于前端展示当前身份）
   GET    /api/enterprise/sso/providers    — SSO 提供方列表（含协议）
   PUT    /api/enterprise/sso/providers    — 配置 SSO 提供方（密钥入 keychain）
-  DELETE /api/enterprise/sso/providers/{name} — 移除 SSO 配置
-  GET    /api/enterprise/sso/{provider}/login     — 返回授权跳转 URL（state 生成）
-  GET    /api/enterprise/sso/{provider}/callback  — code 换身份并写入企业账号
+  DELETE /api/enterprise/sso/providers/{name:path} — 移除 SSO 配置
+  GET    /api/enterprise/sso/{provider:path}/login     — 返回授权跳转 URL（state 生成）
+  GET    /api/enterprise/sso/{provider:path}/callback  — code 换身份并写入企业账号
 """
 import json
 import logging
@@ -77,7 +77,7 @@ async def upsert_user(u: UserIn):
     )
 
 
-@router.delete("/users/{user_id}")
+@router.delete("/users/{user_id:path}")
 async def delete_user(user_id: str):
     await enterprise_users_repo.remove(user_id)
     return {"ok": True}
@@ -146,7 +146,7 @@ async def upsert_sso_provider(p: SSOProviderIn):
     return {"ok": True, "name": p.name}
 
 
-@router.delete("/sso/providers/{name}")
+@router.delete("/sso/providers/{name:path}")
 async def delete_sso_provider(name: str):
     providers = _load_sso_providers()
     if name not in providers:
@@ -172,7 +172,7 @@ def _providers_for_registry(providers: Dict[str, Dict[str, Any]]) -> Dict[str, D
     return out
 
 
-@router.get("/sso/{provider}/login")
+@router.get("/sso/{provider:path}/login")
 async def sso_login(provider: str):
     providers = _load_sso_providers()
     if provider not in providers:
@@ -191,7 +191,7 @@ async def sso_login(provider: str):
     return {"authorization_url": url, "state": state}
 
 
-@router.get("/sso/{provider}/callback")
+@router.get("/sso/{provider:path}/callback")
 async def sso_callback(provider: str, code: str, state: str = ""):
     providers = _load_sso_providers()
     if provider not in providers:

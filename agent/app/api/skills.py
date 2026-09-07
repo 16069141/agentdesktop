@@ -104,7 +104,7 @@ async def install(req: InstallRequest):
     return result
 
 
-@router.get("/{skill_id}")
+@router.get("/{skill_id:path}")
 async def get_skill(skill_id: str):
     rec = await skills_repo.get(skill_id)
     if not rec:
@@ -112,7 +112,7 @@ async def get_skill(skill_id: str):
     return rec
 
 
-@router.post("/{skill_id}/enable")
+@router.post("/{skill_id:path}/enable")
 async def enable_skill(skill_id: str):
     rec = await loader.set_enabled(skill_id, True)
     if not rec:
@@ -120,7 +120,7 @@ async def enable_skill(skill_id: str):
     return rec
 
 
-@router.post("/{skill_id}/disable")
+@router.post("/{skill_id:path}/disable")
 async def disable_skill(skill_id: str):
     rec = await loader.set_enabled(skill_id, False)
     if not rec:
@@ -128,7 +128,7 @@ async def disable_skill(skill_id: str):
     return rec
 
 
-@router.delete("/{skill_id}")
+@router.delete("/{skill_id:path}")
 async def uninstall(skill_id: str):
     await loader.uninstall_skill(skill_id)
     return {"ok": True}

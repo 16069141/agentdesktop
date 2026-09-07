@@ -113,7 +113,7 @@ async def create_connector_cfg(body: ConnectorCreate):
     return _mask(cfg)
 
 
-@router.put("/{cfg_id}")
+@router.put("/{cfg_id:path}")
 async def update_connector_cfg(cfg_id: str, body: ConnectorUpdate):
     cfg = await repo.get(cfg_id)
     if not cfg:
@@ -141,7 +141,7 @@ async def update_connector_cfg(cfg_id: str, body: ConnectorUpdate):
     return _mask(updated) if updated else None
 
 
-@router.delete("/{cfg_id}")
+@router.delete("/{cfg_id:path}")
 async def delete_connector_cfg(cfg_id: str):
     cfg = await repo.get(cfg_id)
     if not cfg:
@@ -154,7 +154,7 @@ async def delete_connector_cfg(cfg_id: str):
     return {"ok": True}
 
 
-@router.post("/{cfg_id}/test")
+@router.post("/{cfg_id:path}/test")
 async def test_connector(cfg_id: str):
     cfg = await repo.get(cfg_id)
     if not cfg:
@@ -171,7 +171,7 @@ class InvokeRequest(BaseModel):
     params: dict = {}
 
 
-@router.post("/{cfg_id}/invoke")
+@router.post("/{cfg_id:path}/invoke")
 async def invoke_connector_cfg(cfg_id: str, body: InvokeRequest, request: Request):
     """按实例调用连接器操作：审计 + 身份透传（X-User-*）。"""
     from ..auth import parse_identity_headers

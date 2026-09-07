@@ -1,7 +1,7 @@
 """Webhook 接收端点（需求 §2.2：异步事件驱动，P3 工作流触发器使用）。
 
 接口：
-  POST /api/webhooks/{hook_id}   — 接收外部系统事件（落库 webhook_events；匹配工作流则异步触发）
+  POST /api/webhooks/{hook_id:path}   — 接收外部系统事件（落库 webhook_events；匹配工作流则异步触发）
   GET  /api/webhooks/events      — 最近事件（调试/工作流查看）
 """
 import asyncio
@@ -36,7 +36,7 @@ async def _fire_workflows(hook_id: str, payload: Any) -> int:
         return 0
 
 
-@router.post("/{hook_id}")
+@router.post("/{hook_id:path}")
 async def receive(hook_id: str, request: Request):
     """接收外部系统事件：JSON body 落库，匹配工作流异步触发。返回 202 已接收。"""
     try:

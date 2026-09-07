@@ -77,7 +77,7 @@ async def create_connector(body: DbConnCreate):
     return conn
 
 
-@router.put("/{conn_id}")
+@router.put("/{conn_id:path}")
 async def update_connector(conn_id: str, body: DbConnUpdate):
     conn = await repo.get(conn_id)
     if not conn:
@@ -95,7 +95,7 @@ async def update_connector(conn_id: str, body: DbConnUpdate):
     return updated
 
 
-@router.delete("/{conn_id}")
+@router.delete("/{conn_id:path}")
 async def delete_connector(conn_id: str):
     conn = await repo.get(conn_id)
     if not conn:
@@ -104,7 +104,7 @@ async def delete_connector(conn_id: str):
     return {"ok": True}
 
 
-@router.post("/{conn_id}/test")
+@router.post("/{conn_id:path}/test")
 async def test_connector(conn_id: str):
     conn = await repo.get(conn_id)
     if not conn:
@@ -118,7 +118,7 @@ class QueryRequest(BaseModel):
     sql: str
 
 
-@router.post("/{conn_id}/query")
+@router.post("/{conn_id:path}/query")
 async def query_connector(conn_id: str, body: QueryRequest):
     conn = await repo.get(conn_id)
     if not conn:
