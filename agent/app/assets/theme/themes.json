@@ -1,0 +1,98 @@
+{
+  "corporate_blue": {
+    "name": "商务蓝",
+    "colors": {
+      "primary": "#1a73e8",
+      "primary_dark": "#0d47a1",
+      "primary_light": "#4fc3f7",
+      "accent": "#ff6d00",
+      "bg": "#ffffff",
+      "bg_alt": "#f5f7fa",
+      "bg_dark": "#0d1b2a",
+      "text": "#1a1a2e",
+      "text_light": "#ffffff",
+      "text_muted": "#64748b",
+      "border": "#e2e8f0",
+      "success": "#16a34a",
+      "warning": "#f59e0b",
+      "danger": "#dc2626"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "mono": "'JetBrains Mono', 'Fira Code', monospace"
+    }
+  },
+  "tech_dark": {
+    "name": "科技暗色",
+    "colors": {
+      "primary": "#00d9ff",
+      "primary_dark": "#0099cc",
+      "primary_light": "#66e5ff",
+      "accent": "#7c3aed",
+      "bg": "#0f172a",
+      "bg_alt": "#1e293b",
+      "bg_dark": "#020617",
+      "text": "#e2e8f0",
+      "text_light": "#f8fafc",
+      "text_muted": "#94a3b8",
+      "border": "#334155",
+      "success": "#22c55e",
+      "warning": "#eab308",
+      "danger": "#ef4444"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    }
+  },
+  "minimal_white": {
+    "name": "极简白",
+    "colors": {
+      "primary": "#000000",
+      "primary_dark": "#000000",
+      "primary_light": "#6b7280",
+      "accent": "#3b82f6",
+      "bg": "#ffffff",
+      "bg_alt": "#fafafa",
+      "bg_dark": "#171717",
+      "text": "#1f2937",
+      "text_light": "#ffffff",
+      "text_muted": "#9ca3af",
+      "border": "#e5e7eb",
+      "success": "#10b981",
+      "warning": "#f59e0b",
+      "danger": "#ef4444"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    }
+  },
+  "warm_earth": {
+    "name": "暖色调",
+    "colors": {
+      "primary": "#c2410c",
+      "primary_dark": "#9a3412",
+      "primary_light": "#fb923c",
+      "accent": "#0d9488",
+      "bg": "#fffbeb",
+      "bg_alt": "#fef3c7",
+      "bg_dark": "#451a03",
+      "text": "#292524",
+      "text_light": "#ffffff",
+      "text_muted": "#78716c",
+      "border": "#e7e5e4",
+      "success": "#16a34a",
+      "warning": "#eab308",
+      "danger": "#dc2626"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    }
+  }
+}

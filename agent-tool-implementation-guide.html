@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 文档转换 · 实现指南（真实代码）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: #e2e8f0; padding: 26px; min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 16px; margin: 26px 0 12px; }
+  h2 .no { background: #3b82f6; color: #fff; width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; margin-right: 6px; vertical-align: 2px; }
+  .path { font-size: 11px; color: #64748b; font-family: ui-monospace, Menlo, monospace; background: #0b1220; border: 1px solid #1e293b; border-radius: 8px; padding: 5px 10px; display: inline-block; margin-bottom: 10px; }
+  pre {
+    background: #0b1220; border: 1px solid #1e293b; border-radius: 12px; padding: 14px 16px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px; line-height: 1.6;
+    overflow-x: auto; color: #cbd5e1;
+  }
+  .c { color: #64748b; } .k { color: #c084fc; } .s { color: #86efac; } .f { color: #7dd3fc; } .n { color: #fbbf24; }
+  .step { display: flex; gap: 10px; margin-bottom: 20px; }
+  .step .num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; background: #3b82f6; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; margin-top: 2px; }
+  .step .body { flex: 1; min-width: 0; }
+  .step .body h3 { font-size: 14px; margin-bottom: 6px; color: #f1f5f9; }
+  .step .body p { font-size: 12.5px; line-height: 1.7; color: #94a3b8; margin-bottom: 8px; }
+  .note { padding: 12px 14px; border-radius: 12px; background: #1e1b4b33; border: 1px solid #6366f155; font-size: 12px; line-height: 1.7; color: #c7d2fe; margin-top: 8px; }
+  .arrow-down { text-align: center; color: #3b82f6; font-size: 16px; margin: 2px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛠️ 实现指南：给 Agent 加「文档→HTML/PPT」能力</h1>
+  <div class="sub">以下代码全部取自颤翎子真实实现（v2/agent），按 6 步从零搭起完整闭环</div>
+
+  <!-- Step 1 -->
+  <div class="step">
+    <div class="num">1</div>
+    <div class="body">
+      <h3>定义工具类 —— 让模型"认识"这个工具</h3>
+      <div class="path">agent/app/tools/__init__.py · BaseTool 基类</div>
+      <pre><span class="c"># 所有工具继承 BaseTool，只需实现 execute()</span>
+<span class="k">class</span> <span class="f">BaseTool</span>:
+    name: <span class="n">str</span> = <span class="s">"base"</span>
+    description: <span class="n">str</span> = <span class="s">"Base tool"</span>
+    parameters = {<span class="s">"type"</span>: <span class="s">"object"</span>, <span class="s">"properties"</span>: {}, <span class="s">"required"</span>: []}
+
+    <span class="k">async def</span> <span class="f">execute</span>(<span class="n">self</span>, arguments): <span class="k">raise</span> <span class="n">NotImplementedError</span>
+
+    <span class="k">def</span> <span class="f">to_openai_schema</span>(<span class="n">self</span>):
+        <span class="s">"""转成 OpenAI function-calling 格式 → 随请求发给模型"""</span>
+        <span class="k">return</span> {<span class="s">"type"</span>: <span class="s">"function"</span>, <span class="s">"function"</span>: {
+            <span class="s">"name"</span>: <span class="n">self</span>.name,          <span class="c"># 模型看到的名字</span>
+            <span class="s">"description"</span>: <span class="n">self</span>.description,  <span class="c"># 模型据此决定何时调用</span>
+            <span class="s">"parameters"</span>: <span class="n">self</span>.parameters, <span class="c"># 参数 JSON Schema</span>
+        }}</pre>
+      <p>关键点：<b>description 要写清"何时用、怎么用、别做什么"</b>——模型就是靠它做决策的。</p>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="step">
+    <div class="num">2</div>
+    <div class="body">
+      <h3>实现 doc_to_html 工具（Word→HTML，mammoth 引擎）</h3>
+      <div class="path">agent/app/tools/__init__.py · DocToHtmlTool.execute</div>
+      <pre><span class="c"># 工具执行核心：读 docx → mammoth 转换 → 返回 HTML</span>
+<span class="k">async def</span> <span class="f">execute</span>(<span class="n">self</span>, arguments):
+    path = arguments.get(<span class="s">"path"</span>, <span class="s">""</span>)
+    <span class="k">if</span> <span class="k">not</span> path: <span class="k">return</span> {<span class="s">"success"</span>: <span class="n">False</span>, <span class="s">"error"</span>: <span class="s">"缺少 path"</span>}
+    p = Path(path)
+    <span class="k">if</span> <span class="k">not</span> p.exists(): <span class="k">return</span> {<span class="s">"success"</span>: <span class="n">False</span>, <span class="s">"error"</span>: <span class="s">f"文件不存在: {path}"</span>}
+
+    <span class="k">import</span> mammoth
+    <span class="k">with</span> p.open(<span class="s">"rb"</span>) <span class="k">as</span> fh:
+        result = mammoth.<span class="f">convert_to_html</span>(fh, style_map=[])  <span class="c"># 官方转换 API</span>
+    html = result.value
+    <span class="k">return</span> {<span class="s">"success"</span>: <span class="n">True</span>, <span class="s">"html"</span>: html[:60000], <span class="s">"char_count"</span>: len(html)}</pre>
+      <p>安装：<code>pip install mammoth</code>。返回的 HTML 会作为 <code>tool_result</code> 回填给模型，模型据此提炼、包装成完整页面。</p>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="step">
+    <div class="num">3</div>
+    <div class="body">
+      <h3>实现 generate_ppt 工具（大纲→.pptx，python-pptx 引擎）</h3>
+      <div class="path">agent/app/tools/__init__.py · PptGeneratorTool.execute 核心</div>
+      <pre><span class="c"># 解析 Markdown 大纲：# 分页，- 为要点</span>
+current_title = <span class="s">""</span>; current_bullets = []
+<span class="k">for</span> raw_line <span class="k">in</span> markdown.splitlines():
+    stripped = raw_line.lstrip()
+    <span class="k">if</span> stripped.startswith(<span class="s">"#"</span>):                  <span class="c"># 新页面</span>
+        <span class="k">if</span> current_title: add_slide(current_title, current_bullets)
+        current_title = stripped.lstrip(<span class="s">"#"</span>).strip()
+        current_bullets = []
+    <span class="k">elif</span> re.match(<span class="s">r"^[-*•] "</span>, stripped):      <span class="c"># 该页要点</span>
+        current_bullets.append(stripped[2:].strip())
+
+<span class="c"># 用 python-pptx 逐页写入（16:9 宽屏）</span>
+<span class="k">from</span> pptx <span class="k">import</span> Presentation; <span class="k">from</span> pptx.util <span class="k">import</span> Inches, Pt
+prs = Presentation()
+prs.slide_width, prs.slide_height = Inches(<span class="n">13.333</span>), Inches(<span class="n">7.5</span>)
+slide = prs.slides.add_slide(prs.slide_layouts[<span class="n">1</span>])  <span class="c"># 标题+内容版式</span>
+slide.shapes.title.text = page_title
+body = slide.placeholders[<span class="n">1</span>]
+<span class="k">for</span> i, b <span class="k">in</span> enumerate(bullets):
+    para = body.text_frame.paragraphs[<span class="n">0</span>] <span class="k">if</span> i == <span class="n">0</span> <span class="k">else</span> body.text_frame.add_paragraph()
+    para.text = b; para.font.size = Pt(<span class="n">20</span> <span class="k">if</span> len(b) &gt; <span class="n">120</span> <span class="k">else</span> <span class="n">24</span>)  <span class="c"># 长文本自动缩小</span>
+
+prs.save(<span class="s">"uploads/ppt/产品.pptx"</span>)   <span class="c"># 真实 OOXML 文件落盘</span>
+<span class="k">return</span> {<span class="s">"success"</span>: <span class="n">True</span>, <span class="s">"path"</span>: str(out_path), <span class="s">"slides"</span>: slide_count}</pre>
+      <p>安装：<code>pip install python-pptx</code>。返回 <code>path</code> 字段——这是前端「打开文件」按钮的数据来源。</p>
+    </div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="step">
+    <div class="num">4</div>
+    <div class="body">
+      <h3>注册进工具工厂 —— 挂进 Agent 引擎</h3>
+      <div class="path">agent/app/tools/__init__.py · create_tools()</div>
+      <pre>tools: Dict[str, BaseTool] = {
+    <span class="s">"filesystem"</span>: FilesystemTool(allowed_roots=allowed_root_dirs),
+    <span class="s">"shell"</span>: ShellTool(sec, approval_callback=approval_callback),
+    <span class="s">"knowledge"</span>: KnowledgeTool(),
+    <span class="s">"doc_to_html"</span>: DocToHtmlTool(),      <span class="c"># ← 新工具</span>
+    <span class="s">"generate_ppt"</span>: PptGeneratorTool(),  <span class="c"># ← 新工具</span>
+    ...
+}
+<span class="k">return</span> tools</pre>
+    </div>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="step">
+    <div class="num">5</div>
+    <div class="body">
+      <h3>Agent 编排循环 —— 让工具真正被调用（核心引擎）</h3>
+      <div class="path">agent/app/agents/orchestrator.py · run_stream()</div>
+      <pre><span class="c"># ① 把工具 schema 随请求发给模型</span>
+chat_kwargs = {<span class="s">"stream"</span>: <span class="n">True</span>}
+<span class="k">if</span> tool_schemas <span class="k">and</span> tools_enabled:
+    chat_kwargs[<span class="s">"tools"</span>] = tool_schemas   <span class="c"># ← 模型因此知道可以调用工具</span>
+
+<span class="c"># ② 流式收集模型返回的 tool_calls</span>
+<span class="k">async for</span> event <span class="k">in</span> provider.chat(messages, model, **chat_kwargs):
+    <span class="k">if</span> event[<span class="s">"type"</span>] == <span class="s">"tool_calls"</span>:
+        all_tool_calls += event[<span class="s">"calls"</span>]   <span class="c"># 模型说：我要调用 XX 工具，参数是…</span>
+
+<span class="c"># ③ 执行工具，把结果作为 role="tool" 消息回填</span>
+<span class="k">if</span> all_tool_calls:
+    tool_results = <span class="k">await</span> self._tool_node.execute(all_tool_calls, ...)
+    state.messages.extend(tool_results)      <span class="c"># ← 工具结果喂回给模型</span>
+    <span class="k">continue</span>                              <span class="c"># ← 继续下一轮，直到模型给出最终答案</span></pre>
+      <p>这就是多轮闭环：<b>模型要工具 → 引擎执行 → 结果回填 → 模型继续</b>，最多 10 轮，重复调用自动去重、连续 3 次同工具强制终止防死循环。</p>
+    </div>
+  </div>
+
+  <!-- Step 6 -->
+  <div class="step">
+    <div class="num">6</div>
+    <div class="body">
+      <h3>前端交付 —— 文件可点击打开</h3>
+      <div class="path">orchestrator 在 tool_result 里附加 saved_files → ChatView 收集 → MessageItem 渲染按钮</div>
+      <pre><span class="c"># 后端：从工具成功结果里提取 path</span>
+saved_files = []
+<span class="k">if</span> content.startswith(<span class="s">"{"</span>):
+    parsed = json.loads(content)
+    <span class="k">if</span> parsed.get(<span class="s">"success"</span>) <span class="k">is not</span> <span class="n">False</span> <span class="k">and</span> parsed.get(<span class="s">"path"</span>):
+        saved_files.append(parsed[<span class="s">"path"</span>])
+yield {<span class="s">"type"</span>: <span class="s">"tool_result"</span>, <span class="s">"saved_files"</span>: saved_files, ...}
+
+<span class="c"># 前端：MessageItem 渲染交付卡片，点击调 Electron shell</span>
+&lt;button onClick={ () =&gt; window.electronAPI.openFile(filePath) }&gt;打开文件&lt;/button&gt;
+&lt;button onClick={ () =&gt; window.electronAPI.revealInFolder(filePath) }&gt;浏览文件夹&lt;/button&gt;
+<span class="c"># main.ts: shell.openPath(path) / shell.showItemInFolder(path)</span></pre>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>💡 6 步串联起来就是一次完整闭环：</b><br>
+    定义工具（1-3）→ 注册（4）→ 引擎把 tools 发给模型并处理调用（5）→ 结果落盘 + 前端可打开（6）。<br>
+    <b>新增一个"XX 转换"工具的最小工作量 = 一个类（~30 行 execute）+ 一行注册</b>。引擎、前端、事件流全部复用，不需要改任何框架代码。
+  </div>
+</div>
+</body>
+</html>

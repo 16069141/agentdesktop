@@ -1,0 +1,39 @@
+{
+  "shell_whitelist": [
+    "ls",
+    "cat",
+    "pwd",
+    "echo",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "wc",
+    "sort",
+    "uniq",
+    "diff",
+    "git",
+    "python",
+    "node",
+    "npm",
+    "curl",
+    "wget"
+  ],
+  "dangerous_patterns": [
+    "rm -rf",
+    "mkfs",
+    "dd if=",
+    ":() {",
+    "> /"
+  ],
+  "max_shell_timeout_sec": 30,
+  "allowed_root_dirs": [
+    "/Users/caojian"
+  ],
+  "context_max_turns": 20,
+  "context_system_ratio": 0.15,
+  "context_history_ratio": 0.4,
+  "context_generation_ratio": 0.45,
+  "model_providers": [],
+  "sso_providers": {}
+}

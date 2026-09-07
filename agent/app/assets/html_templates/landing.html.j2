@@ -1,0 +1,137 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<!-- Hero -->
+<section class="hero" style="padding: 96px 0 72px;">
+  <div class="container">
+    {% if badge %}<span class="badge">{{ badge }}</span>{% endif %}
+    <h1 style="font-size: 3rem;">{{ title }}</h1>
+    {% if subtitle %}
+    <p class="subtitle" style="font-size: 1.3rem;">{{ subtitle }}</p>
+    {% endif %}
+    {% for section in sections if section.type == 'cta' %}
+    {% if loop.first %}
+    <div style="margin-top: 2em;">
+      <a href="{{ section.link | default('#') }}" class="cta-btn" style="font-size: 1.15rem;">{{ section.button_text | default('立即开始') }}</a>
+      {% if section.secondary_text %}
+      <a href="{{ section.secondary_link | default('#') }}" class="cta-btn secondary" style="font-size: 1.15rem;">{{ section.secondary_text }}</a>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</section>
+
+<!-- Feature sections -->
+{% for section in sections %}
+<section class="section{% if section.alt_bg %} section-alt{% endif %}"{% if section.id %} id="{{ section.id }}"{% endif %}>
+  <div class="{{ 'container-narrow' if section.narrow else 'container' }}">
+    {% if section.type == 'heading' %}
+      <h{{ section.level | default(2) }}>{{ section.title }}</h{{ section.level | default(2) }}>
+      {% if section.content %}<p>{{ section.content }}</p>{% endif %}
+
+    {% elif section.type == 'paragraph' %}
+      <p>{{ section.content }}</p>
+
+    {% elif section.type == 'cards' %}
+      {% if section.title %}<h2 class="text-center">{{ section.title }}</h2>{% endif %}
+      {% if section.subtitle %}<p class="text-center text-muted mb-4">{{ section.subtitle }}</p>{% endif %}
+      <div class="card-grid cols-{{ section.cols | default(3) }}">
+        {% for card in section['items'] %}
+        <div class="card">
+          {% if card.icon %}<div class="card-icon">{{ card.icon }}</div>{% endif %}
+          <h3>{{ card.title }}</h3>
+          <p>{{ card.content }}</p>
+        </div>
+        {% endfor %}
+      </div>
+
+    {% elif section.type == 'stats' %}
+      {% if section.title %}<h2 class="text-center">{{ section.title }}</h2>{% endif %}
+      <div class="stats-row">
+        {% for stat in section['items'] %}
+        <div class="stat-item text-center">
+          <div class="stat-value">{{ stat.value }}</div>
+          <div class="stat-label">{{ stat.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+    {% elif section.type == 'list' %}
+      {% if section.title %}<h3>{{ section.title }}</h3>{% endif %}
+      <ul class="feature-list">
+        {% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+
+    {% elif section.type == 'quote' %}
+      <blockquote>{{ section.content }}</blockquote>
+
+    {% elif section.type == 'chart' %}
+      {% if section.title %}<h2 class="text-center">{{ section.title }}</h2>{% endif %}
+      <div class="chart-container">
+        {% if section.chart_title %}<h4>{{ section.chart_title }}</h4>{% endif %}
+        <div class="chart-canvas-wrap">
+          <canvas id="{{ section.id }}"></canvas>
+        </div>
+      </div>
+
+    {% elif section.type == 'cta' %}
+      <div class="cta">
+        <h2>{{ section.title }}</h2>
+        {% if section.content %}<p class="text-muted mb-4">{{ section.content }}</p>{% endif %}
+        <a href="{{ section.link | default('#') }}" class="cta-btn">{{ section.button_text | default('立即开始') }}</a>
+        {% if section.secondary_text %}
+        <a href="{{ section.secondary_link | default('#') }}" class="cta-btn secondary">{{ section.secondary_text }}</a>
+        {% endif %}
+      </div>
+
+    {% elif section.type == 'grid-2' %}
+      {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
+      <div class="grid-2" style="align-items: center;">
+        <div>
+          {% if section.left_title %}<h2>{{ section.left_title }}</h2>{% endif %}
+          {% if section.left_html %}<div>{{ section.left_html | safe }}</div>{% endif %}
+          {% if section.left_items %}
+          <ul class="feature-list mt-2">
+            {% for item in section.left_items %}<li>{{ item }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+        <div>
+          {% if section.right_html %}<div>{{ section.right_html | safe }}</div>{% endif %}
+          {% if section.right_items %}
+          <ul class="feature-list mt-2">
+            {% for item in section.right_items %}<li>{{ item }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+      </div>
+
+    {% elif section.type == 'table' %}
+      {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
+      <div class="table-wrap">
+        <table>
+          {% if section.headers %}
+          <thead><tr>
+            {% for h in section.headers %}<th>{{ h }}</th>{% endfor %}
+          </tr></thead>
+          {% endif %}
+          <tbody>
+            {% for row in section.rows %}
+            <tr>
+              {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endfor %}
+
+<footer>
+  <div class="container">
+    <p>{{ footer_text | default('&copy; 2024 All rights reserved') }}</p>
+  </div>
+</footer>
+{% endblock %}
