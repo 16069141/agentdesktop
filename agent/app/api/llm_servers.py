@@ -246,6 +246,14 @@ async def sync_models(server_id: str):
         await repo.save_models_cache(server_id, models)
         await repo.save_health(server_id, True)
         return {"ok": True, "models": models, "count": len(models)}
+    except httpx.HTTPStatusError as exc:
+        await repo.save_health(server_id, False)
+        status = exc.response.status_code
+        if status == 404:
+            detail = "该服务不支持 /v1/models 模型列表接口，请手动在「允许模型」字段填入模型名称白名单"
+        else:
+            detail = f"同步模型列表失败 (HTTP {status}): {exc}"
+        raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
         await repo.save_health(server_id, False)
         raise HTTPException(status_code=502, detail=f"同步模型列表失败: {exc}")
