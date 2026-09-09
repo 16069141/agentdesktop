@@ -10,6 +10,7 @@
 """
 import asyncio
 import logging
+import os
 import re
 import shlex
 import subprocess
@@ -18,17 +19,28 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# 默认危险模式（编译为正则前缀匹配）
+# 默认危险模式（编译为正则前缀匹配，作为分段白名单校验之外的纵深防御）
 DANGEROUS_PATTERNS = [
     r"^rm\s+(-[a-zA-Z]*r[a-zA-Z]*|-\w+r)",  # rm -rf 等
     r"^mkfs",
     r"^dd\s+if=",
     r"^format",
-    r">\s*/",  # 重定向到根
+    r">\s*/(?:\s|$)",  # 重定向到「裸根 /」本身；普通绝对路径(>/etc、>/Users/…)交由路径校验精确判定
     r"sudo\s+",
     r"curl\s+.*\|",  # 管道 curl
     r"wget\s+.*\|",
 ]
+
+# Shell 分段操作符：管道 / 命令链 / 后台。
+# 出现这些操作符时，操作符两侧各是一个独立命令段，每段的首命令都必须过白名单。
+_SHELL_SEPARATORS = {";", "|", "||", "&&", "&", "|&"}
+
+# 重定向操作符：其后的 token 是文件路径，必须落在校验根目录内
+_REDIRECT_OPS = {">", ">>", "<", "<<", ">|", "&>", "&>>", "2>", "2>>"}
+
+# 命令替换 / 进程替换 / 多行命令：可在「看似合法」的命令中隐藏任意命令执行，
+# 一律拒绝（如 echo $(rm -rf ~)、cat `id`、sh -c "$(<(...))"、换行拼接）。
+_FORBIDDEN_SUBSTRINGS = ("$(", "`", "<(", ">(", "\n", "\r")
 
 
 class ShellSecurity:
@@ -55,30 +67,137 @@ class ShellSecurity:
             re.compile(p, re.IGNORECASE) for p in self.dangerous_patterns
         ]
 
-    def check_command(self, command: str) -> Dict[str, Any]:
-        """校验命令是否安全。返回 {allowed, reason, sanitized}。"""
-        parts = shlex.split(command)
+    def _path_within_roots(self, p: Path) -> bool:
+        """路径是否落在任一允许根目录内（多个根全部参与校验）。"""
+        resolved = p.resolve()
+        for root in self.allowed_root_dirs:
+            try:
+                resolved.relative_to(root)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    @staticmethod
+    def _looks_like_path(token: str) -> bool:
+        """token 是否像文件路径（需要做根目录校验）。
+
+        覆盖：绝对路径、~ 开头、含目录分隔或 .. 的相对路径。
+        普通单词（子命令、主机名、URL 等）不做文件语义校验。
+        """
+        if not token or token.startswith("-"):
+            return False
+        if token.startswith(("~", "/", "./", "../")):
+            return True
+        return "/" in token or ".." in token
+
+    def _resolve_arg_path(self, token: str, cwd: str | None) -> Optional[Path]:
+        """把命令参数中的路径解析为绝对路径（相对路径基于 cwd）。"""
+        if token.startswith("~"):
+            token = os.path.expanduser(token)
+        p = Path(token)
+        if not p.is_absolute():
+            p = Path(cwd or os.getcwd()) / p
+        return p
+
+    def check_command(self, command: str, cwd: Optional[str] = None) -> Dict[str, Any]:
+        """校验命令是否安全。返回 {allowed, reason, command}。
+
+        校验链：
+        1. 拒绝命令替换 / 进程替换 / 多行命令（隐藏任意命令执行）；
+        2. shlex 词法切分，按 ; | && & 等操作符拆成独立命令段，
+           每段首命令必须与白名单 **精确匹配**（basename），
+           杜绝 `ls; rm -rf` 这类「首词合法、后续藏命令」的绕过；
+        3. env 包装的真实命令、find -exec 等间接执行点同样校验；
+        4. 危险正则纵深防御；
+        5. 路径参数 / 重定向目标 / cwd 必须落在任一允许根目录内。
+        """
+        # 0) cwd 本身必须在允许根目录内（否则相对路径校验失去意义）
+        if cwd:
+            cwd_path = Path(cwd).resolve()
+            if not self._path_within_roots(cwd_path):
+                return {"allowed": False, "reason": "cwd_outside_root", "command": command}
+
+        # 1) 命令替换 / 进程替换 / 多行：直接拒绝
+        for bad in _FORBIDDEN_SUBSTRINGS:
+            if bad in command:
+                return {"allowed": False, "reason": f"forbidden_syntax:{bad.strip() or 'newline'}",
+                        "command": command}
+
+        # 2) 词法切分
+        try:
+            parts = shlex.split(command, comments=False, posix=True)
+        except ValueError as exc:
+            return {"allowed": False, "reason": f"parse_error: {exc}", "command": command}
         if not parts:
-            return {"allowed": False, "reason": "empty_command"}
+            return {"allowed": False, "reason": "empty_command", "command": command}
 
-        cmd = parts[0]
-        # 1) 白名单校验
-        if not any(cmd.startswith(w) for w in self.whitelist):
-            return {"allowed": False, "reason": "not_in_whitelist", "command": command}
+        # 3) 拆段 + 收集待校验路径
+        segments: List[List[str]] = [[]]
+        path_tokens: List[str] = []
+        i = 0
+        while i < len(parts):
+            tok = parts[i]
+            if tok in _SHELL_SEPARATORS:
+                if not segments[-1]:
+                    return {"allowed": False, "reason": "bad_shell_syntax", "command": command}
+                segments.append([])
+            elif tok in _REDIRECT_OPS:
+                # 重定向目标必须是一个路径 token
+                if i + 1 >= len(parts) or parts[i + 1] in _SHELL_SEPARATORS:
+                    return {"allowed": False, "reason": "redirect_without_target",
+                            "command": command}
+                path_tokens.append(parts[i + 1])
+                i += 1
+            else:
+                segments[-1].append(tok)
+            i += 1
 
-        # 2) 危险模式校验
+        # 4) 逐段白名单校验
+        for seg in segments:
+            if not seg:
+                return {"allowed": False, "reason": "bad_shell_syntax", "command": command}
+            cmd_token = seg[0]
+            cmd_base = os.path.basename(cmd_token)
+            # 精确匹配：startwith 会让 `ls; rm -rf` 的 "ls;" 或伪造的
+            # `lsof`/`cpython` 之类词蒙混过关
+            if cmd_base not in self.whitelist:
+                return {"allowed": False, "reason": f"not_in_whitelist:{cmd_base}",
+                        "command": command}
+
+            # env VAR=val <真实命令> ...：跳过赋值项后，真实命令也要在白名单
+            if cmd_base == "env":
+                for t in seg[1:]:
+                    if "=" in t and not t.startswith("-") and "/" not in t:
+                        continue  # VAR=value 赋值
+                    if os.path.basename(t) not in self.whitelist:
+                        return {"allowed": False,
+                                "reason": f"not_in_whitelist:{os.path.basename(t)}",
+                                "command": command}
+                    break
+
+            # find -exec/-ok 可借白名单命令执行任意二进制，直接禁止
+            if cmd_base == "find" and any(
+                t in ("-exec", "-execdir", "-ok", "-okdir") for t in seg
+            ):
+                return {"allowed": False, "reason": "find_exec_forbidden", "command": command}
+
+            # 段内路径参数收集（跳过首词命令本身）
+            for t in seg[1:]:
+                if self._looks_like_path(t):
+                    path_tokens.append(t)
+
+        # 5) 危险正则（纵深防御，正常情况下分段校验已拦截）
         for re_pat in self._danger_re:
             if re_pat.search(command):
                 return {"allowed": False, "reason": "dangerous_pattern", "command": command}
 
-        # 3) 路径前缀校验（仅对含路径参数的命令）
-        for part in parts[1:]:
-            p = Path(part) if not part.startswith("-") else None
-            if p and p.is_absolute():
-                try:
-                    p.resolve().relative_to(self.allowed_root_dirs[0])
-                except ValueError:
-                    return {"allowed": False, "reason": "path_outside_root", "command": command}
+        # 6) 路径校验：所有路径参数 / 重定向目标必须落在任一允许根目录内
+        for tok in path_tokens:
+            p = self._resolve_arg_path(tok, cwd)
+            if p is None or not self._path_within_roots(p):
+                return {"allowed": False, "reason": f"path_outside_root:{tok}",
+                        "command": command}
 
         return {"allowed": True, "reason": None, "command": command}
 
@@ -89,7 +208,7 @@ class ShellSecurity:
         cwd: Optional[str] = None,
     ) -> Dict[str, Any]:
         """执行命令。approved=False 时直接拒绝。"""
-        check = self.check_command(command)
+        check = self.check_command(command, cwd=cwd)
         if not check["allowed"]:
             return {
                 "success": False,

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { createServer } from 'http'
 import type { Server } from 'http'
@@ -16,6 +17,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let mainWindow: BrowserWindow | null = null
 let agentToken = ''
 let approvalServer: Server | null = null
+// 审批服务共享密钥：每次启动随机生成，仅注入后端进程环境变量。
+// 本机其他进程即使扫描到审批端口，无此密钥也无法伪造批准请求。
+let approvalSecret = ''
 
 /** 弹出「命令执行确认」系统对话框；窗口不存在或用户拒绝时返回 false（安全优先） */
 async function requestShellApproval(command: string): Promise<boolean> {
@@ -32,18 +36,35 @@ async function requestShellApproval(command: string): Promise<boolean> {
   return res.response === 1
 }
 
+/** 常量时间比较，避免密钥校验的时序侧信道 */
+function secretMatches(provided: string | undefined, expected: string): boolean {
+  if (!provided || !expected) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
+}
+
 /**
  * 启动本机审批服务（仅监听 127.0.0.1 随机端口）。
  * 后端 Agent 在执行 shell 命令前通过 HTTP 调用此服务弹出 UI 确认，
  * 从而打通「Shell 白名单 + UI 确认 + 执行」的完整闭环。
+ * 每个 /approve 请求必须携带 X-Approval-Secret 头（值为启动时生成的
+ * 一次性密钥），否则直接拒绝——防止本机其他进程扫描端口后伪造批准。
  * 返回可被 Agent 使用的审批 URL。
  */
-function startApprovalServer(): Promise<string> {
+function startApprovalServer(secret: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       if (req.method !== 'POST' || req.url !== '/approve') {
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ approved: false }))
+        return
+      }
+      // 共享密钥校验：无密钥或密钥错误一律拒绝（安全优先）
+      if (!secretMatches(req.headers['x-approval-secret'] as string | undefined, secret)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ approved: false, error: 'unauthorized' }))
         return
       }
       let body = ''
@@ -181,15 +202,17 @@ app.whenReady().then(async () => {
   // 渲染层会轮询 /healthz 并展示启动进度。
   createWindow()
 
-  // 启动审批服务，并把地址注入 Agent，打通 shell 命令 UI 确认闭环
+  // 启动审批服务，并把地址 + 一次性密钥注入 Agent，打通 shell 命令 UI 确认闭环。
+  // 密钥每次启动随机生成，仅通过环境变量传给后端，不落盘、不入前端。
   let approvalUrl = ''
+  approvalSecret = crypto.randomBytes(32).toString('hex')
   try {
-    approvalUrl = await startApprovalServer()
+    approvalUrl = await startApprovalServer(approvalSecret)
   } catch (err) {
     console.error('[Agent] 审批服务启动失败，shell 命令将一律拒绝:', err)
   }
 
-  const ok = await spawnAgentProcess(agentToken, approvalUrl)
+  const ok = await spawnAgentProcess(agentToken, approvalUrl, approvalSecret)
   if (!ok) {
     console.error('[Agent] 后端启动失败，渲染层将展示错误提示')
   } else {

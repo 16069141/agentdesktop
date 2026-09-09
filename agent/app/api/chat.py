@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
@@ -35,8 +36,27 @@ router = APIRouter(prefix="/api", tags=["chat"])
 # ──────────────────────────────────────────────────────────────
 # System Prompt：内容生成排版引导规则
 # ──────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """你是一个专业的内容创作与智能助手，帮助用户完成各类任务。
+SYSTEM_PROMPT_CHAT = """你是一个友好、自然的日常聊天助手，名叫「颤翎子」。
 
+## 交互规则
+- 用口语化、亲切自然的中文回复，像朋友聊天一样
+- 回答简洁轻量，先直接给结论，再视需要补充
+- 知识问答、闲聊、思路探讨、普通咨询都保持轻松语气
+- 除非用户明确要求，不要主动输出 Markdown 结构、代码块、表格或方案文档
+- 不要过度使用工具：只有用户明确要求处理文件、上网、查资料等具体动作时才考虑调用工具
+- 联网搜索规则：当用户要求"搜索 / 查一下 / 查最新 / 上网查 / 联网 / 新闻 / 实时信息"时，
+  必须调用 web_search 工具联网获取，禁止仅凭内部知识编造最新信息；
+  搜索结果中值得展开的页面可用 browser 工具抓取正文
+- 当用户明确要求"生成/输出 HTML、PPT、Word、Excel、表格、报告文件"时，必须调用对应工具
+  （generate_html / generate_ppt / doc_to_html 等）产出真实文件，并在完成时告知文件路径，不能只用文字假装输出
+- 不知道就说不知道，不编造
+
+## 风格
+- 简短、有温度、不啰嗦
+- 中文简体
+"""
+
+SYSTEM_PROMPT = """你是一个专业的内容创作与智能助手，帮助用户完成各类任务。
 ## 生成 HTML 时的规则
 - 优先使用 generate_html 工具，通过模板引擎渲染，不要从零手写 CSS
 - 工具会根据你提供的结构化 JSON 内容自动套用 CSS 设计系统
@@ -65,10 +85,15 @@ msg_repo = MessageRepo()
 
 # Agent 编排器懒加载（延迟导入重模块，加速启动）
 _agent_orchestrator = None
+# 双模式编排器缓存：chat（对话）/ work（工作）各一个独立 system_prompt 实例
+_orchestrators: dict[str, Any] = {}
 
 # Shell 审批：Electron 主进程通过本机 HTTP 服务弹出 UI 确认。
 # 未配置（如直接跑后端脚本）时安全优先，一律拒绝 —— 与「无回调默认拒绝」策略一致。
 APPROVAL_URL = os.environ.get("AGENT_APPROVAL_URL", "").strip()
+# 审批服务共享密钥：由 Electron 启动时随机生成并注入，回调必须原样携带，
+# 防止本机其他进程扫描到审批端口后伪造批准请求。
+APPROVAL_SECRET = os.environ.get("AGENT_APPROVAL_SECRET", "").strip()
 
 
 async def _request_shell_approval(payload: dict) -> bool:
@@ -83,10 +108,13 @@ async def _request_shell_approval(payload: dict) -> bool:
     import urllib.request as _urllib
 
     body = json.dumps({"command": command}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if APPROVAL_SECRET:
+        headers["X-Approval-Secret"] = APPROVAL_SECRET
     req = _urllib.Request(
         f"{APPROVAL_URL.rstrip('/')}/approve",
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
 
@@ -128,25 +156,128 @@ def _load_allowed_root_dirs() -> list[str]:
     return [os.path.expanduser(d) for d in dirs]
 
 
-def _get_orchestrator():
-    """懒加载 Agent 编排器：首次调用时才导入并初始化，避免启动时加载重模块。"""
-    global _agent_orchestrator
-    if _agent_orchestrator is None:
-        from ..agents.orchestrator import AgentOrchestrator
-        from ..context.context_manager import ContextManager
+async def _build_system_prompt(key: str) -> str:
+    """组装 system prompt：基础提示 + 联网搜索能力 + 已启用只读数据库连接清单。"""
+    prompt = SYSTEM_PROMPT_CHAT if key == "chat" else SYSTEM_PROMPT
+    try:
+        # ── 联网搜索能力说明（web_search / browser 开箱即用）──
+        try:
+            from ..storage import list_web_search_servers_sync
 
-        _context_manager = ContextManager(max_tokens=16384)
-        _agent_orchestrator = AgentOrchestrator(
+            search_servers = list_web_search_servers_sync()
+            provider_desc = "、".join(
+                f"{s.get('provider')}({s.get('name')})" for s in search_servers
+            ) or "duckduckgo（免 Key 默认）"
+            web_block = (
+                "\n\n## 联网搜索能力（web_search / browser 工具）\n"
+                "- 需要查询最新信息、新闻、政策、技术资料、外部网站内容时，"
+                "使用 web_search 搜索关键词，再用 browser 抓取具体页面正文。\n"
+                f"- 当前已配置搜索服务：{provider_desc}。"
+                "没有结果或信息不足时可换关键词再搜，必要时直接抓取搜索结果的链接。\n"
+                "- 搜索与抓取只访问公网地址；内网/本地地址会被安全拦截。"
+            )
+            prompt = prompt + web_block
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[chat] 注入联网能力说明失败: {exc}")
+
+        from ..storage import db_connector_repo
+
+        conns = await db_connector_repo.list_all()
+        enabled = [c for c in conns if c.get("enabled")]
+        if not enabled:
+            return prompt
+        lines = []
+        for c in enabled:
+            db_type = c.get("dbType", "sqlite")
+            dsn = c.get("dsn", "") or ""
+            if db_type == "postgres":
+                m = re.search(
+                    r"://([^:/@]+):[^@/]+@([^:/]+):(\d+)/([^/]+)", dsn
+                )
+                if m:
+                    summary = (
+                        f"PostgreSQL host={m.group(2)}:{m.group(3)} "
+                        f"db={m.group(4)} user={m.group(1)}"
+                    )
+                else:
+                    summary = "PostgreSQL（DSN 未解析，直接使用连接 id）"
+            else:
+                summary = f"SQLite file={dsn.replace('sqlite://', '')}"
+            lines.append(f"- id: {c.get('id')}（{c.get('name')}）· {summary}")
+        block = (
+            "\n\n## 已配置的只读数据库连接（可用 db_query 工具查询，仅 SELECT/WITH/EXPLAIN）\n"
+            + "\n".join(lines)
+            + "\n当用户提到查询数据库、查表、查数据、看库结构时，"
+              "先从上面的连接中选匹配的 id，用 db_query 工具执行只读查询。"
+              "\n查询效率硬性要求："
+              "① 一次查询尽量取全所需字段，用 information_schema 一条 SQL 拿全部表/列/类型（string_agg 聚合），禁止分批、分页、逐表多次查询；"
+              "② 元数据类任务通常 1~2 次 db_query 即可拿够信息；"
+              "③ 拿到足够信息后立即产出最终结果（如调用 generate_html 生成报告文件），不得反复追加查询。"
+        )
+        return prompt + block
+    except Exception:
+        return prompt
+
+
+async def _get_orchestrator(mode: str = "chat"):
+    """懒加载 Agent 编排器：首次调用时才导入并初始化，避免启动时加载重模块。
+
+    按模式（chat/work）各自持有独立实例：system_prompt 不同，
+    会话上下文由 conversations.mode 隔离，互不串扰。
+    连接清单指纹：只读数据库连接增删/启停后自动重建 system_prompt，无需重启。
+    """
+    global _agent_orchestrator
+    key = mode if mode in ("chat", "work") else "chat"
+    try:
+        from ..storage import db_connector_repo, list_web_search_servers_sync, list_mcp_servers_sync
+
+        conns, search_servers, mcp_servers = await asyncio.gather(
+            db_connector_repo.list_all(),
+            # 同步 sqlite3 读取放线程，避免阻塞事件循环
+            asyncio.to_thread(list_web_search_servers_sync),
+            asyncio.to_thread(list_mcp_servers_sync),
+        )
+        fingerprint = (
+            tuple(
+                (c.get("id"), c.get("name"), c.get("enabled"), c.get("dbType"))
+                for c in conns
+            ),
+            # 联网搜索服务与 MCP 工具缓存变更后同样触发重建（无需重启）
+            tuple((s.get("id"), s.get("provider"), s.get("enabled")) for s in search_servers),
+            tuple(
+                (s.get("id"), s.get("enabled"), len(s.get("tools_cache") or []))
+                for s in mcp_servers
+            ),
+        )
+    except Exception:
+        fingerprint = None
+    cached = _orchestrators.get(key)
+    if cached and cached[0] == fingerprint:
+        return cached[1]
+    from ..agents.orchestrator import AgentOrchestrator
+    from ..context.context_manager import ContextManager
+
+    _context_manager = ContextManager(
+        max_tokens=32768,
+        tool_result_max_chars=2500,
+        max_turns=15,
+    )
+    prompt = await _build_system_prompt(key)
+
+    def _build_orchestrator() -> AgentOrchestrator:
+        # 构造链路含同步阻塞 IO：get_registry → build_providers →
+        # _resolve_base_url（urllib 探测 /models，每台最多 6s、串行），
+        # 以及 init_tools 里的磁盘读取。放线程执行，避免冻结事件循环。
+        return AgentOrchestrator(
             context_manager=_context_manager,
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=prompt,
             approval_callback=_request_shell_approval,
             allowed_root_dirs=_load_allowed_root_dirs(),
         )
+
+    _agent_orchestrator = await asyncio.to_thread(_build_orchestrator)
+    _orchestrators[key] = (fingerprint, _agent_orchestrator)
     return _agent_orchestrator
-
-
-# 每个文本分片之间的间隔，让「停止生成」可被真实观察到
-TOKEN_DELAY_SEC = 0.045
 
 
 class Attachment(BaseModel):
@@ -165,26 +296,13 @@ class ChatRequest(BaseModel):
     model_id: str
     images: list[str] = []
     attachments: list[Attachment] = []
+    mode: str = "chat"
 
 
 def _sse(event: str, data: Any) -> bytes:
     """格式化单条 SSE 事件。data 为字符串时原样输出（用于 [DONE] 哨兵）。"""
     payload = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
-
-
-def _split_tokens(text: str) -> list[str]:
-    """把回复切成较小的分片，模拟 token 级流式输出（中文按字、英文按词）。"""
-    tokens: list[str] = []
-    buf = ""
-    for ch in text:
-        buf += ch
-        if ch in "，。！？；：、\n" or (ch.isascii() and ch == " "):
-            tokens.append(buf)
-            buf = ""
-    if buf:
-        tokens.append(buf)
-    return [t for t in tokens if t]
 
 
 async def _generate_reply(
@@ -195,6 +313,7 @@ async def _generate_reply(
     session_id: str = "",
     images: list[str] | None = None,
     attachment_paths: list[str] | None = None,
+    mode: str = "chat",
 ) -> AsyncIterator[dict]:
     """Phase 3: 使用 AgentOrchestrator 生成真实回复（流式）。"""
     try:
@@ -205,7 +324,7 @@ async def _generate_reply(
             for m in history[:-1]
             if m["role"] in ("user", "assistant") and m.get("content")
         ]
-        async for event in _get_orchestrator().run_stream(
+        async for event in (await _get_orchestrator(mode)).run_stream(
             user_message=user_message,
             conversation_id=conversation_id,
             model_id=model_id,
@@ -221,24 +340,6 @@ async def _generate_reply(
         yield {"type": "error", "message": f"Agent 执行失败: {exc}"}
 
 
-def _build_reply(message: str, model_id: str) -> tuple[str, str]:
-    """返回 (思考过程, 回复正文)。兜底占位实现（Agent 不可用时使用）。"""
-    thinking = (
-        f"收到问题：「{message[:40]}{'…' if len(message) > 40 else ''}」。\n"
-        f"当前模型 {model_id}，运行在 127.0.0.1 本地服务。\n"
-        "Phase 3 Agent 编排暂未就绪，以下为占位回复。"
-    )
-    reply = (
-        f"你好，我已收到你的消息：\n\n> {message}\n\n"
-        "当前状态：\n\n"
-        "1. **Agent 编排** — 多轮工具调用闭环已实现；\n"
-        "2. **内置工具** — filesystem/shell/code/browser 已注册；\n"
-        "3. **架构升级** — 已移除本地模型引擎和 RAG 通道，转为纯云端架构。\n\n"
-        "升级后这里将输出真实的思考过程、工具调用与回答。"
-    )
-    return thinking, reply
-
-
 async def _event_stream(
     request: Request,
     conversation_id: str,
@@ -249,10 +350,12 @@ async def _event_stream(
     session_id: str = "",
     images: list[str] | None = None,
     attachments: list[Attachment] | None = None,
+    mode: str = "chat",
 ) -> AsyncIterator[bytes]:
     """产出 SSE 字节流，并在客户端断开时及时停止。"""
     collected: list[str] = []
     aborted = False
+    finished = False  # 是否已收到 orchestrator 的 done 事件（正常收尾）
     tool_call_count = 0
     usage_info: Dict[str, Any] = {}
     saved_files_set: list[str] = []  # 本轮全部工具产出文件（持久化到消息 metadata）
@@ -283,6 +386,7 @@ async def _event_stream(
                 session_id=session_id,
                 images=images,
                 attachment_paths=attach_paths or None,
+                mode=mode,
             ):
                 if await request.is_disconnected():
                     aborted = True
@@ -291,12 +395,13 @@ async def _event_stream(
                 if etype == "text":
                     delta = event.get("delta", "")
                     collected.append(delta)
+                    # LLM 本身已是流式（Provider 逐 chunk 产出），直接透传，
+                    # 不再人为加 sleep —— 旧实现每分片 sleep 45ms，
+                    # 一条 500 分片的回复会凭空多出 20+ 秒。
                     yield _sse("text", {"delta": delta})
-                    await asyncio.sleep(TOKEN_DELAY_SEC)
                 elif etype == "thinking":
                     delta = event.get("delta", "")
                     yield _sse("thinking", {"delta": delta})
-                    await asyncio.sleep(TOKEN_DELAY_SEC)
                 elif etype == "tool_call":
                     # 透传给前端，用于事件时间线展示
                     tool_call_count += 1
@@ -323,9 +428,10 @@ async def _event_stream(
                         },
                     )
                 elif etype == "error":
-                    error_msg = event.get("message", "未知错误")
-                    # 友好化：原始 400/500 API 错误对用户无意义，提炼摘要
-                    friendly = _friendly_error(error_msg)
+                    error_msg = event.get("message", "") or ""
+                    # 原始错误先落日志（便于排查），再友好化展示给用户
+                    logger.error(f"[chat] 模型/Agent 错误事件: {error_msg}")
+                    friendly = _friendly_error(error_msg) or "模型调用失败（未返回错误详情）"
                     collected.append(f"\n[错误] {friendly}")
                     yield _sse("text", {"delta": f"\n[错误] {friendly}\n"})
                     aborted = True
@@ -335,6 +441,7 @@ async def _event_stream(
                     yield _sse(
                         "done", {"message_id": assistant_id, "usage": usage_info}
                     )
+                    finished = True
                     break
         except Exception as exc:
             logger.error(f"[chat] Agent 编排异常: {exc}")
@@ -342,23 +449,33 @@ async def _event_stream(
             yield _sse("text", {"delta": f"\n[错误] {exc}\n"})
             aborted = True
 
-        # 4) done：无论正常结束还是被中断，都要给出明确收尾
-        # 优先透传 Provider 真实用量；缺失时才用估算兜底
-        final_usage = (
-            usage_info
-            if usage_info.get("promptTokens") is not None
-            or usage_info.get("completionTokens") is not None
-            else _usage(final_text, model_id)
-        )
+        # 4) done 收尾：
+        # - 正常结束（finished，已透传 orchestrator 的 done + 真实 usage）：
+        #   不再补发 done 数据帧，避免重复事件/估算 usage 覆盖真实用量；
+        # - 中断（aborted，错误事件/异常/客户端断开）：补发 aborted 帧，
+        #   前端据此保留已生成的部分内容；
+        # - 流被截断（既无 done 也无 error）：兜底补发正常 done，
+        #   防止前端永久停在 generating 状态。
+        # 三种路径最后都统一发 [DONE] 哨兵结束 SSE 流。
         final_text = "".join(collected)
-        if aborted:
-            # 被中断也保存已生成的部分，避免内容凭空消失
-            yield _sse(
-                "done",
-                {"aborted": True, "message_id": assistant_id, "usage": final_usage},
+        if aborted or not finished:
+            # 优先透传 Provider 真实用量；缺失时才用估算兜底
+            final_usage = (
+                usage_info
+                if usage_info.get("promptTokens") is not None
+                or usage_info.get("completionTokens") is not None
+                else _usage(final_text, model_id)
             )
-        else:
-            yield _sse("done", {"message_id": assistant_id, "usage": final_usage})
+            if aborted:
+                yield _sse(
+                    "done",
+                    {"aborted": True, "message_id": assistant_id,
+                     "usage": final_usage},
+                )
+            else:
+                yield _sse(
+                    "done", {"message_id": assistant_id, "usage": final_usage}
+                )
         yield _sse("done", "[DONE]")
 
     finally:
@@ -417,7 +534,7 @@ def _friendly_error(message: str) -> str:
     """
     msg = (message or "").strip()
     if not msg:
-        return "模型调用失败，请稍后重试"
+        return ""
     low = msg.lower()
     if "invalid json data" in low or "failed to deserialize" in low:
         return "模型返回了无法解析的数据（工具调用历史异常），已自动终止本轮，请重试或换一种问法"
@@ -427,6 +544,8 @@ def _friendly_error(message: str) -> str:
         return "模型服务鉴权失败（API Key 无效或已过期），请在「设置 → 模型服务器」更新密钥"
     if "rate limit" in low or "429" in low:
         return "模型服务请求过于频繁（限流），请稍后重试"
+    if "readerror" in low or "read error" in low or "connection reset" in low:
+        return "模型服务连接被中断（可能请求过大或服务端超时），已终止本轮；建议把任务拆小重试"
     if "timeout" in low or "timed out" in low:
         return "模型服务响应超时，请检查网络或服务器状态后重试"
     if len(msg) > 160:
@@ -524,6 +643,7 @@ async def chat(req: ChatRequest, request: Request):
             session_id=str(uuid.uuid4())[:12],
             images=req.images or None,
             attachments=req.attachments or [],
+            mode=req.mode if req.mode in ("chat", "work") else "chat",
         ),
         media_type="text/event-stream; charset=utf-8",
         headers={

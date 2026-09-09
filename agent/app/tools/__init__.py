@@ -15,30 +15,17 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 
-class BaseTool:
-    """工具基类。"""
+# 基类 / 落盘目录 / 路径沙箱下沉到 _foundation（叶子模块，供本包各子模块共用，避免循环导入）
+from ._foundation import (
+    BaseTool,
+    _CREDENTIAL_DIR_NAMES,
+    _assert_writable,
+    _data_uploads_dir,
+    _resolve_in_roots,
+)
 
-    name: str = "base"
-    description: str = "Base tool"
-    requires_approval: bool = False
-
-    # OpenAI function-calling 风格的参数 JSON Schema。
-    # 没有它，模型就无从知道该传什么参数，工具调用闭环无法成立。
-    parameters: Dict[str, Any] = {"type": "object", "properties": {}, "required": []}
-
-    async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        raise NotImplementedError
-
-    def to_openai_schema(self) -> Dict[str, Any]:
-        """转换为 OpenAI/Ollama function-calling 的工具描述。"""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
+# 文档/HTML 生成工具（docx 转换、Jinja2 渲染），实现见 doc_tools.py
+from .doc_tools import DocToHtmlTool, HtmlGeneratorTool
 
 
 class FilesystemTool(BaseTool):
@@ -78,14 +65,7 @@ class FilesystemTool(BaseTool):
         ]
 
     def _check_path(self, path_str: str) -> Path:
-        p = Path(path_str)
-        if not p.is_absolute():
-            p = p.resolve()
-        try:
-            p.resolve().relative_to(self.allowed_roots[0])
-        except ValueError:
-            raise PermissionError(f"path outside allowed roots: {path_str}")
-        return p
+        return _resolve_in_roots(path_str, self.allowed_roots)
 
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         action = arguments.get("action", "read")
@@ -108,9 +88,13 @@ class FilesystemTool(BaseTool):
             if content is None:
                 return {"success": False, "error": "content required"}
             try:
+                # 写保护：禁止覆盖 shell/应用隐藏配置（~/.zshrc、~/.ssh/…）
+                _assert_writable(p, self.allowed_roots)
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(content, encoding="utf-8")
                 return {"success": True, "path": str(p)}
+            except PermissionError as e:
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
@@ -165,8 +149,8 @@ class ShellTool(BaseTool):
         if not command:
             return {"success": False, "error": "command required"}
 
-        # 安全检查
-        check = self.security.check_command(command)
+        # 安全检查（cwd 一并校验，防止借工作目录逃逸根目录）
+        check = self.security.check_command(command, cwd=cwd)
         if not check["allowed"]:
             return {
                 "success": False,
@@ -378,6 +362,13 @@ class CodeTool(BaseTool):
         "shell": ("#",),
     }
 
+    def __init__(self, allowed_roots: list[str] | None = None):
+        # 读文件同样受沙箱约束（旧实现直接 Path(path).read_text，
+        # 模型可读取 ~/.ssh/id_rsa 等任意文件）
+        self.allowed_roots = [
+            Path(r).resolve() for r in (allowed_roots or [Path.home()])
+        ]
+
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         action = arguments.get("action", "analyze")
         path = arguments.get("path")
@@ -387,7 +378,10 @@ class CodeTool(BaseTool):
         source = code or ""
         if path and not source:
             try:
-                source = Path(path).read_text(encoding="utf-8", errors="replace")
+                p = _resolve_in_roots(path, self.allowed_roots)
+                source = p.read_text(encoding="utf-8", errors="replace")
+            except PermissionError as e:
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 return {"success": False, "error": f"读取文件失败: {e}"}
         if not source.strip():
@@ -457,43 +451,6 @@ class CodeTool(BaseTool):
             re.IGNORECASE,
         )
         return 1 + len(keywords)
-
-
-class BrowserTool(BaseTool):
-    """浏览器自动化工具（来源白名单校验）。
-
-    当前为占位实现：v0.1.0 尚未接入 Playwright。为避免误导模型与用户，
-    明确返回「未实现」而非模拟成功。
-    """
-
-    name = "browser"
-    description = (
-        "网页浏览与抓取（来源白名单校验）：打开页面、提取正文（当前版本未实现）"
-    )
-    requires_approval = False
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["open", "extract"],
-                "description": "open 打开页面 / extract 提取正文内容",
-            },
-            "url": {
-                "type": "string",
-                "description": "目标网页 URL，必须在来源白名单内",
-            },
-        },
-        "required": ["action", "url"],
-    }
-
-    async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "success": False,
-            "error": "browser 工具在当前版本（v0.1.0）尚未实现，请勿依赖其返回内容。",
-            "arguments": arguments,
-        }
 
 
 class ConnectorTool(BaseTool):
@@ -576,7 +533,10 @@ class DbQueryTool(BaseTool):
 
     name = "db_query"
     description = (
-        "对已配置的数据库只读连接执行 SQL 查询（仅允许 SELECT/WITH/EXPLAIN，强制只读）"
+        "对已配置的数据库只读连接执行 SQL 查询（仅允许 SELECT/WITH/EXPLAIN，强制只读）。"
+        "一次查询尽量取全所需字段（用聚合/string_agg 一条 SQL 拿全量元数据），"
+        "超长结果会自动压缩并标注 truncated——不要因截断而反复分批补查，"
+        "拿够结构信息后立即继续生成最终结果。"
     )
     requires_approval = False
 
@@ -648,67 +608,7 @@ class RpaTool(BaseTool):
         )
 
 
-class DocToHtmlTool(BaseTool):
-    """Word 文档 → HTML 转换工具（mammoth 引擎）。
-
-    面向「上传 docx → 提炼总结 → 生成 HTML」场景：模型给出原始 docx
-    文件路径，工具返回正文 HTML（图片内嵌为 base64，样式由调用方决定），
-    模型据此提炼并输出成品 HTML 页面。
-    """
-
-    name = "doc_to_html"
-    description = (
-        "把 Word 文档（.docx）转换为 HTML 正文。"
-        "输入 docx 文件的绝对路径，返回 HTML 内容（正文结构 + 文本，图片以 base64 内嵌）。"
-        "适合把用户上传的 Word 文档提炼为 HTML 页面的场景。"
-    )
-    requires_approval = False
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "path": {
-                "type": "string",
-                "description": "要转换的 .docx 文件绝对路径（如 /Users/xxx/.../文档.docx）",
-            },
-        },
-        "required": ["path"],
-    }
-
-    async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        path = arguments.get("path", "")
-        if not path:
-            return {"success": False, "error": "缺少 path 参数"}
-        p = Path(path)
-        if not p.exists():
-            return {"success": False, "error": f"文件不存在: {path}"}
-        if p.suffix.lower() != ".docx":
-            return {
-                "success": False,
-                "error": f"仅支持 .docx 文件，收到: {p.suffix or '(无扩展名)'}",
-            }
-
-        try:
-            import mammoth
-
-            with p.open("rb") as fh:
-                result = mammoth.convert_to_html(fh, style_map=[])
-
-            html = result.value
-            messages = result.messages or []
-            if len(html) > 60_000:
-                html = html[:60_000] + "\n<!-- [截断] HTML 过长，剩余部分省略 -->"
-            return {
-                "success": True,
-                "html": html,
-                "char_count": len(html),
-                "warnings": [str(m) for m in messages][:5],
-            }
-        except ImportError:
-            return {"success": False, "error": "mammoth 库未安装，无法转换 docx"}
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"[tools] doc_to_html 转换失败: {exc}")
-            return {"success": False, "error": f"docx 转换失败: {exc}"}
+# DocToHtmlTool / HtmlGeneratorTool 已移至 app/tools/doc_tools.py（顶部 re-export 保持 import 可用）
 
 
 class PptGeneratorTool(BaseTool):
@@ -735,7 +635,12 @@ class PptGeneratorTool(BaseTool):
         "  - data: 数据页（字段：title, metrics[{value,label}], bullets[]）\n"
         "  - image_text: 图文页（字段：title, bullets[], image_path, image_left）\n"
         "  - closing: 结束页（字段：title, subtitle, contact）\n"
-        "theme 可选：corporate_blue(商务蓝) / tech_dark(科技暗色) / minimal_white(极简白)，默认 corporate_blue。\n"
+        "  - agenda: 议程页（字段：title, items[{no,title,content}]）\n"
+        "  - quote: 金句页（字段：content, author）\n"
+        "  - stats: 数据指标页（字段：title, metrics[{value,label,desc}], note）\n"
+        "theme 可选：corporate_blue(商务蓝) / tech_dark(科技暗色) / minimal_white(极简白) / "
+        "warm_earth(暖土色) / aurora_purple(极光紫) / forest_green(森林绿) / sunset_orange(落日橙)，"
+        "默认 corporate_blue。\n"
         "建议控制在 8-15 页，每页 3-5 条要点，单条不超过 40 字。"
     )
     requires_approval = False
@@ -763,6 +668,9 @@ class PptGeneratorTool(BaseTool):
                                 "data",
                                 "image_text",
                                 "closing",
+                                "agenda",
+                                "quote",
+                                "stats",
                             ],
                         },
                     },
@@ -770,7 +678,15 @@ class PptGeneratorTool(BaseTool):
             },
             "theme": {
                 "type": "string",
-                "enum": ["corporate_blue", "tech_dark", "minimal_white"],
+                "enum": [
+                    "corporate_blue",
+                    "tech_dark",
+                    "minimal_white",
+                    "warm_earth",
+                    "aurora_purple",
+                    "forest_green",
+                    "sunset_orange",
+                ],
                 "description": "视觉主题（默认 corporate_blue）",
             },
             "markdown": {
@@ -796,13 +712,7 @@ class PptGeneratorTool(BaseTool):
             )
 
             # 落盘目录
-            ppt_dir = (
-                Path(__file__).resolve().parent.parent.parent
-                / "data"
-                / "uploads"
-                / "ppt"
-            )
-            ppt_dir.mkdir(parents=True, exist_ok=True)
+            ppt_dir = _data_uploads_dir("ppt")
             safe_name = (
                 "".join(c for c in title if c.isalnum() or c in "._-") or "presentation"
             )
@@ -879,165 +789,7 @@ class PptGeneratorTool(BaseTool):
         return slides
 
 
-class HtmlGeneratorTool(BaseTool):
-    """HTML 生成工具：通过 Jinja2 模板引擎渲染精美 HTML 页面。
-
-    面向「生成 HTML 报告 / 数据看板 / 对比分析 / 落地页」场景。
-    模型提供结构化 JSON 内容（title, subtitle, sections, theme），
-    工具自动套用 CSS 设计系统渲染成品 HTML 文件。
-
-    核心优势：排版由模板固化，模型只负责内容组织，不写 CSS。
-    支持 4 套模板 + 4 套主题 + Chart.js 图表。
-    """
-
-    name = "generate_html"
-    description = (
-        "根据结构化 JSON 内容生成精美 HTML 页面文件。"
-        "模板引擎自动套用 CSS 设计系统（配色、字体、间距、响应式），"
-        "支持 Chart.js 图表，中文排版优化。\n"
-        "参数说明：\n"
-        "  - title: 页面标题（必填）\n"
-        "  - template: 模板类型，可选 report(分析报告) / dashboard(数据看板) / comparison(对比分析) / landing(落地页)\n"
-        "  - theme: 主题，可选 corporate_blue / tech_dark / minimal_white / warm_earth\n"
-        "  - subtitle: 副标题（可选）\n"
-        "  - sections: 内容区块数组，每项含 type 和对应内容字段\n"
-        "    支持的 section type：\n"
-        "      heading(标题段) / paragraph(段落) / cards(卡片组) / table(表格) / chart(图表) / "
-        "stats(统计指标) / quote(引用) / list(列表) / timeline(时间线) / grid-2(两栏) / cta(行动号召)\n"
-        "    chart section 需提供 id 和 chart_config（Chart.js 配置 JSON）\n"
-        '示例 sections: [{"type":"cards","title":"核心优势","cols":3,"items":[{"title":"高性能","content":"..."}]}]'
-    )
-    requires_approval = False
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "title": {
-                "type": "string",
-                "description": "页面标题（显示在 hero 区域和浏览器标签）",
-            },
-            "template": {
-                "type": "string",
-                "enum": ["report", "dashboard", "comparison", "landing"],
-                "description": "模板类型（默认 report）",
-            },
-            "theme": {
-                "type": "string",
-                "enum": ["corporate_blue", "tech_dark", "minimal_white", "warm_earth"],
-                "description": "视觉主题（默认 corporate_blue）",
-            },
-            "subtitle": {
-                "type": "string",
-                "description": "副标题（显示在 hero 区域标题下方）",
-            },
-            "sections": {
-                "type": "array",
-                "description": "内容区块数组。每项含 type 字段和对应内容",
-                "items": {"type": "object"},
-            },
-            "badge": {"type": "string", "description": "hero 区域标签文字（可选）"},
-            "footer_text": {"type": "string", "description": "页脚文字（可选）"},
-        },
-        "required": ["title", "sections"],
-    }
-
-    _TEMPLATE_MAP = {
-        "report": "report.html.j2",
-        "dashboard": "dashboard.html.j2",
-        "comparison": "comparison.html.j2",
-        "landing": "landing.html.j2",
-    }
-
-    async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        title = (arguments.get("title") or "").strip()
-        if not title:
-            return {"success": False, "error": "缺少 title 参数"}
-
-        sections = arguments.get("sections")
-        if not sections or not isinstance(sections, list):
-            return {
-                "success": False,
-                "error": "缺少 sections 内容区块（至少需要 1 个 section）",
-            }
-
-        template_name = arguments.get("template", "report")
-        theme_name = arguments.get("theme", "corporate_blue")
-        subtitle = arguments.get("subtitle", "")
-        badge = arguments.get("badge", "")
-        footer_text = arguments.get("footer_text", "")
-
-        try:
-            import json as _json
-            from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-            template_dir = str(
-                Path(__file__).resolve().parent.parent / "assets" / "html_templates"
-            )
-            env = Environment(
-                loader=FileSystemLoader(template_dir),
-                autoescape=select_autoescape(["html", "xml"]),
-                trim_blocks=True,
-                lstrip_blocks=True,
-            )
-
-            theme_path = (
-                Path(__file__).resolve().parent.parent
-                / "assets"
-                / "theme"
-                / "themes.json"
-            )
-            with open(theme_path, "r", encoding="utf-8") as f:
-                all_themes = _json.load(f)
-            theme = all_themes.get(theme_name, all_themes["corporate_blue"])
-
-            charts = []
-            for sec in sections:
-                if isinstance(sec, dict) and sec.get("type") == "chart":
-                    chart_id = sec.get("id", f"chart_{len(charts)}")
-                    chart_config = sec.get("chart_config") or sec.get("config") or "{}"
-                    if isinstance(chart_config, dict):
-                        chart_config = _json.dumps(chart_config, ensure_ascii=False)
-                    charts.append({"id": chart_id, "config": chart_config})
-
-            template_file = self._TEMPLATE_MAP.get(template_name, "report.html.j2")
-            template = env.get_template(template_file)
-
-            html = template.render(
-                title=title,
-                subtitle=subtitle,
-                badge=badge,
-                sections=sections,
-                theme=theme,
-                charts=charts,
-                footer_text=footer_text,
-                meta=arguments.get("meta", ""),
-            )
-
-            html_dir = (
-                Path(__file__).resolve().parent.parent.parent
-                / "data"
-                / "uploads"
-                / "html"
-            )
-            html_dir.mkdir(parents=True, exist_ok=True)
-            safe_name = "".join(c for c in title if c.isalnum() or c in "._-") or "page"
-            out_path = html_dir / f"{safe_name}.html"
-            out_path.write_text(html, encoding="utf-8")
-
-            return {
-                "success": True,
-                "path": str(out_path),
-                "filename": out_path.name,
-                "template": template_name,
-                "theme": theme_name,
-                "sections_count": len(sections),
-            }
-
-        except ImportError as exc:
-            return {"success": False, "error": f"依赖库未安装: {exc}"}
-        except Exception as exc:
-            logger.error(f"[tools] generate_html 失败: {exc}", exc_info=True)
-            return {"success": False, "error": f"HTML 生成失败: {exc}"}
+# HtmlGeneratorTool 实现见 app/tools/doc_tools.py（顶部 re-export）
 
 
 # 工具工厂
@@ -1059,6 +811,8 @@ def create_tools(
     generate_html（HTML 生成，Jinjia2 模板 + CSS 设计系统）。
     """
     from app.security.shell_security import get_security as _get_shell_security
+    from .web_tools import BrowserTool, WebSearchTool, McpDynamicTool
+    from ..storage import list_mcp_servers_sync
 
     sec = security or _get_shell_security()
     tools: Dict[str, BaseTool] = {
@@ -1067,14 +821,26 @@ def create_tools(
         # 始终注册 knowledge：未配置知识库连接时由工具自身返回明确提示，
         # 而不是让工具凭空消失（模型会因此不知道知识库功能的存在）。
         "knowledge": KnowledgeTool(),
-        "code": CodeTool(),
+        "code": CodeTool(allowed_roots=allowed_root_dirs),
+        # 联网能力：browser（运行时安全校验的网页抓取/正文提取）+
+        # web_search（多 provider 搜索，未配置时 DuckDuckGo 免 Key 兜底）
         "browser": BrowserTool(),
+        "web_search": WebSearchTool(),
         "db_query": DbQueryTool(),
         "rpa": RpaTool(),
-        "doc_to_html": DocToHtmlTool(),
+        "doc_to_html": DocToHtmlTool(allowed_roots=allowed_root_dirs),
         "generate_ppt": PptGeneratorTool(),
         "generate_html": HtmlGeneratorTool(),
     }
+    # 外部 MCP Server 动态挂载：tools_cache 中有工具清单的启用服务
+    # 直接注册为 McpDynamicTool（可插拔；新增服务在设置页「测试并同步」后生效）。
+    for _mcp_cfg in list_mcp_servers_sync():
+        for _t in _mcp_cfg.get("tools_cache") or []:
+            try:
+                _mt = McpDynamicTool(_mcp_cfg, _t)
+                tools[_mt.name] = _mt
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[tools] MCP 工具注册失败 {_mcp_cfg.get('name')}: {exc}")
     # 连接器工具：默认全部注册，未配置连接时由工具自身返回提示
     from ..connectors import CONNECTOR_TYPES
 

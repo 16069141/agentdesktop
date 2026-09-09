@@ -76,8 +76,13 @@ const ConnectorsView: React.FC = () => {
   // 数据库只读
   const [dbConns, setDbConns] = useState<DbConnItem[]>([])
   const [showDbForm, setShowDbForm] = useState(false)
-  const [dbForm, setDbForm] = useState({ id: '', name: '', db_type: 'sqlite', dsn: '', enabled: true, max_rows: 100, timeout_sec: 10 })
+  const [dbForm, setDbForm] = useState({
+    id: '', name: '', db_type: 'sqlite', dsn: '',
+    pg_host: '127.0.0.1', pg_port: '5432', pg_user: '', pg_password: '', pg_dbname: '',
+    enabled: true, max_rows: 100, timeout_sec: 10,
+  })
   const [dbTest, setDbTest] = useState<Record<string, { ok: boolean; error?: string }>>({})
+  const [dbQuery, setDbQuery] = useState<Record<string, { open: boolean; sql: string; res: any; loading: boolean }>>({})
 
   // Webhook
   const [events, setEvents] = useState<WebhookEvent[]>([])
@@ -188,10 +193,22 @@ const ConnectorsView: React.FC = () => {
   }
 
   // ===== 数据库只读 =====
+  /** 展示用脱敏：隐藏 DSN 中的密码 */
+  const maskDsn = (dsn: string) =>
+    dsn.replace(/\/\/([^:/@]+):([^@/]+)@/, '//$1:***@')
+
   const saveDb = async () => {
     setError(null)
     try {
-      await api.dbConnectors.create(dbForm)
+      const form = { ...dbForm }
+      if (form.db_type === 'postgres') {
+        if (!form.pg_host.trim() || !form.pg_user.trim() || !form.pg_dbname.trim()) {
+          setError('PostgreSQL 需填写 主机 / 用户 / 数据库名')
+          return
+        }
+        form.dsn = `postgresql://${encodeURIComponent(form.pg_user)}:${encodeURIComponent(form.pg_password)}@${form.pg_host.trim()}:${Number(form.pg_port) || 5432}/${encodeURIComponent(form.pg_dbname.trim())}`
+      }
+      await api.dbConnectors.create(form)
       setShowDbForm(false)
       loadAll()
     } catch (e) {
@@ -216,18 +233,28 @@ const ConnectorsView: React.FC = () => {
     }
   }
   const queryDb = async (d: DbConnItem) => {
-    const sql = window.prompt(`对「${d.name}」执行只读查询（仅 SELECT / WITH / EXPLAIN）`, 'SELECT * FROM sqlite_master LIMIT 10')
-    if (!sql) return
+    const defSql = d.dbType === 'postgres'
+      ? 'SELECT tablename FROM pg_tables WHERE schemaname=current_schema() LIMIT 10'
+      : 'SELECT * FROM sqlite_master LIMIT 10'
+    setDbQuery((p) => ({
+      ...p,
+      [d.id]: p[d.id]
+        ? { ...p[d.id], open: !p[d.id].open }
+        : { open: true, sql: defSql, res: null, loading: false },
+    }))
+  }
+  const runQuery = async (d: DbConnItem) => {
+    const q = dbQuery[d.id]
+    if (!q || !q.sql.trim()) return
+    setDbQuery((p) => ({ ...p, [d.id]: { ...p[d.id], loading: true, res: null } }))
     try {
-      const res = await api.dbConnectors.query(d.id, sql)
-      if (res.success) {
-        const sample = res.rows.slice(0, 8)
-        window.alert(`返回 ${res.count} 行${res.truncated ? '（已截断）' : ''}，耗时 ${res.latency_ms}ms\n\n${JSON.stringify(sample, null, 2).slice(0, 1500)}`)
-      } else {
-        window.alert(`查询失败：${res.error}`)
-      }
+      const res = await api.dbConnectors.query(d.id, q.sql)
+      setDbQuery((p) => ({ ...p, [d.id]: { ...p[d.id], loading: false, res } }))
     } catch (e) {
-      window.alert(`查询失败：${e instanceof Error ? e.message : String(e)}`)
+      setDbQuery((p) => ({
+        ...p,
+        [d.id]: { ...p[d.id], loading: false, res: { success: false, error: e instanceof Error ? e.message : String(e) } },
+      }))
     }
   }
 
@@ -464,7 +491,7 @@ const ConnectorsView: React.FC = () => {
         <div>
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm" style={{ color: 'var(--text-dim)' }}>
-              SQLite 文件级只读（mode=ro）· 语句级只读校验（SELECT/WITH/EXPLAIN）· 写操作一律拒绝
+              SQLite 文件级只读（mode=ro）· PostgreSQL 只读事务 · 语句级只读校验（SELECT/WITH/EXPLAIN）· 写操作一律拒绝
             </div>
             <button
               className="px-3 py-1.5 rounded-lg text-sm"
@@ -477,7 +504,18 @@ const ConnectorsView: React.FC = () => {
 
           {showDbForm && (
             <div className="p-4 rounded-xl mb-4" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-              <div className="font-medium text-sm mb-3">新增数据库只读连接</div>
+              <div className="font-medium text-sm mb-3 flex items-center gap-2">
+                新增数据库只读连接
+                <select
+                  className="text-xs rounded-lg px-2 py-1 outline-none"
+                  style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                  value={dbForm.db_type}
+                  onChange={(e) => setDbForm({ ...dbForm, db_type: e.target.value })}
+                >
+                  <option value="sqlite">SQLite</option>
+                  <option value="postgres">PostgreSQL</option>
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
@@ -491,12 +529,48 @@ const ConnectorsView: React.FC = () => {
                   placeholder="名称（如 生产库-只读）" value={dbForm.name}
                   onChange={(e) => setDbForm({ ...dbForm, name: e.target.value })}
                 />
-                <input
-                  className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
-                  style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
-                  placeholder="SQLite 文件绝对路径（如 /opt/data/prod.db）" value={dbForm.dsn}
-                  onChange={(e) => setDbForm({ ...dbForm, dsn: e.target.value })}
-                />
+                {dbForm.db_type === 'postgres' ? (
+                  <>
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="主机（如 127.0.0.1）" value={dbForm.pg_host}
+                      onChange={(e) => setDbForm({ ...dbForm, pg_host: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="端口（默认 5432）" value={dbForm.pg_port}
+                      onChange={(e) => setDbForm({ ...dbForm, pg_port: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="用户名（如 postgres）" value={dbForm.pg_user}
+                      onChange={(e) => setDbForm({ ...dbForm, pg_user: e.target.value })}
+                    />
+                    <input
+                      type="password"
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="密码" value={dbForm.pg_password}
+                      onChange={(e) => setDbForm({ ...dbForm, pg_password: e.target.value })}
+                    />
+                    <input
+                      className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="数据库名（如 price_library）" value={dbForm.pg_dbname}
+                      onChange={(e) => setDbForm({ ...dbForm, pg_dbname: e.target.value })}
+                    />
+                  </>
+                ) : (
+                  <input
+                    className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
+                    style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                    placeholder="SQLite 文件绝对路径（如 /opt/data/prod.db）" value={dbForm.dsn}
+                    onChange={(e) => setDbForm({ ...dbForm, dsn: e.target.value })}
+                  />
+                )}
                 <input
                   className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
                   style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
@@ -529,7 +603,7 @@ const ConnectorsView: React.FC = () => {
             <div className="rounded-xl p-8 text-center text-sm" style={{ background: 'var(--bg-panel)', border: '1px dashed var(--border)' }}>
               <div style={{ color: 'var(--text-dim)' }}>尚未配置数据库只读连接</div>
               <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
-                已实现 SQLite；PostgreSQL / MySQL 适配器预留，后续版本接入
+                已实现 SQLite / PostgreSQL 只读直连；MySQL 适配器预留，后续版本接入
               </div>
             </div>
           ) : (
@@ -556,8 +630,63 @@ const ConnectorsView: React.FC = () => {
                     </span>
                   </div>
                   <div className="text-xs font-mono" style={{ color: 'var(--text-faint)' }}>
-                    {d.dsn} · 最多 {d.maxRows} 行 · 超时 {d.timeoutSec}s
+                    {maskDsn(d.dsn)} · 最多 {d.maxRows} 行 · 超时 {d.timeoutSec}s
                   </div>
+                  {dbQuery[d.id]?.open && (
+                    <div className="mt-3 pt-3" style={{ borderTop: '1px dashed var(--border)' }}>
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          className="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none font-mono"
+                          style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                          placeholder="只读 SQL（仅 SELECT / WITH / EXPLAIN）" value={dbQuery[d.id].sql}
+                          onChange={(e) => setDbQuery((p) => ({ ...p, [d.id]: { ...p[d.id], sql: e.target.value } }))}
+                          onKeyDown={(e) => e.key === 'Enter' && runQuery(d)}
+                        />
+                        <button
+                          className="px-3 py-1.5 rounded-lg text-xs"
+                          style={{ background: 'var(--accent)', color: '#fff', opacity: dbQuery[d.id].loading ? 0.6 : 1 }}
+                          onClick={() => runQuery(d)}
+                        >
+                          {dbQuery[d.id].loading ? '执行中…' : '执行'}
+                        </button>
+                      </div>
+                      {dbQuery[d.id].res && (
+                        dbQuery[d.id].res.success ? (
+                          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border-soft)' }}>
+                            <div className="text-xs px-2.5 py-1.5" style={{ background: 'var(--code-bg)', color: 'var(--text-dim)' }}>
+                              返回 {dbQuery[d.id].res.count} 行{dbQuery[d.id].res.truncated ? '（已截断）' : ''} · 耗时 {dbQuery[d.id].res.latency_ms}ms
+                            </div>
+                            <div className="overflow-auto max-h-56">
+                              <table className="text-xs w-full">
+                                <thead>
+                                  <tr style={{ background: 'var(--bg-elev)' }}>
+                                    {(dbQuery[d.id].res.columns || []).map((c: string, i: number) => (
+                                      <th key={i} className="text-left px-2.5 py-1.5 font-medium whitespace-nowrap" style={{ color: 'var(--text)' }}>{c}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(dbQuery[d.id].res.rows || []).map((r: any, ri: number) => (
+                                    <tr key={ri} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                                      {(dbQuery[d.id].res.columns || []).map((c: string, ci: number) => (
+                                        <td key={ci} className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: 'var(--text-dim)' }}>
+                                          {r[c] === null || r[c] === undefined ? 'NULL' : String(r[c])}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-xs rounded-lg px-2.5 py-2" style={{ background: 'var(--error-soft, rgba(255,80,80,.1))', color: 'var(--error)' }}>
+                            查询失败：{dbQuery[d.id].res.error}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

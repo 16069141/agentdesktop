@@ -47,6 +47,16 @@ from .workflows import (
     workflow_repo,
     workflow_run_repo,
 )
+from .web_search_servers import (
+    WebSearchServerRepo,
+    web_search_server_repo,
+    list_web_search_servers_sync,
+)
+from .mcp_servers import (
+    McpServerRepo,
+    mcp_server_repo,
+    list_mcp_servers_sync,
+)
 
 __all__ = [
     "init_db",
@@ -91,4 +101,10 @@ __all__ = [
     "WorkflowRunRepo",
     "workflow_repo",
     "workflow_run_repo",
+    "WebSearchServerRepo",
+    "web_search_server_repo",
+    "list_web_search_servers_sync",
+    "McpServerRepo",
+    "mcp_server_repo",
+    "list_mcp_servers_sync",
 ]

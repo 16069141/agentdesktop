@@ -15,8 +15,11 @@ from .enterprise import (
     sync_connector_registry,
 )
 from .db_ro import (
+    build_pg_dsn,
     query_db,
+    query_postgres,
     query_sqlite,
+    test_postgres,
     test_sqlite,
     validate_read_only_sql,
     ReadOnlyViolation,
@@ -35,8 +38,11 @@ __all__ = [
     "create_connector",
     "list_connector_types",
     "sync_connector_registry",
+    "build_pg_dsn",
     "query_db",
+    "query_postgres",
     "query_sqlite",
+    "test_postgres",
     "test_sqlite",
     "validate_read_only_sql",
     "ReadOnlyViolation",

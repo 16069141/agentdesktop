@@ -3,6 +3,8 @@ import { api } from '../../api'
 import ModelServersManager from './ModelServersManager'
 import KnowledgeServersManager from './KnowledgeServersManager'
 import EnterpriseManager from './EnterpriseManager'
+import SearchServersManager from './SearchServersManager'
+import McpServersManager from './McpServersManager'
 
 interface Settings {
   shell_whitelist: string[]
@@ -111,6 +113,12 @@ const SettingsView: React.FC = () => {
 
         {/* 知识库连接管理 */}
         <KnowledgeServersManager />
+
+        {/* 联网搜索服务（web_search 工具） */}
+        <SearchServersManager />
+
+        {/* 外部 MCP 服务（动态挂载工具） */}
+        <McpServersManager />
 
         {/* 企业身份与权限（Phase B P0） */}
         <EnterpriseManager />

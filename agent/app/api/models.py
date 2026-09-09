@@ -33,11 +33,18 @@ def _get_allowed_map() -> dict[str, list[str]]:
 
 
 def _filter_by_allowed(models: list[dict], allowed_map: dict[str, list[str]]) -> list[dict]:
-    """按 provider 白名单过滤模型列表。"""
+    """按 provider 白名单过滤模型列表。
+
+    大小写不敏感：后台填 GLM-4.7 也能命中真实模型 id glm-4.7。
+    """
     result = []
     for m in models:
         allowed = allowed_map.get(m.get("providerId", ""), [])
-        if not allowed or m.get("id") in allowed:
+        if not allowed:
+            result.append(m)
+            continue
+        allowed_lower = {a.strip().lower() for a in allowed if a.strip()}
+        if str(m.get("id", "")).lower() in allowed_lower:
             result.append(m)
     return result
 

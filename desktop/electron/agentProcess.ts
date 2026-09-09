@@ -8,6 +8,11 @@ let agentProcess: ChildProcess | null = null
 const MAX_RESTARTS = 3
 let restartCount = 0
 let stopped = false
+// 审批服务 URL/共享密钥在整个 app 生命周期内不变（由 main.ts 启动一次）。
+// 模块级记住它们：崩溃自动重启走 spawnAgentProcess(token) 不带后续参数，
+// 若不记忆，重启后的后端拿不到 AGENT_APPROVAL_URL/SECRET，shell 审批会全部失效。
+let currentApprovalUrl = ''
+let currentApprovalSecret = ''
 
 export const AGENT_PORT = Number(process.env.AGENT_PORT || 8765)
 
@@ -51,10 +56,17 @@ function resolveDataDir(): string {
   return ''
 }
 
-export async function spawnAgentProcess(token: string, approvalUrl = ''): Promise<boolean> {
+export async function spawnAgentProcess(
+  token: string,
+  approvalUrl?: string,
+  approvalSecret?: string,
+): Promise<boolean> {
   if (agentProcess) stopAgentProcess()
 
   stopped = false
+  // 显式传入则更新（首次启动）；未传（崩溃自动重启）则复用上一次的值
+  if (approvalUrl) currentApprovalUrl = approvalUrl
+  if (approvalSecret) currentApprovalSecret = approvalSecret
   const python = resolvePython()
   const agentRoot = resolveAgentRoot()
 
@@ -67,7 +79,10 @@ export async function spawnAgentProcess(token: string, approvalUrl = ''): Promis
     env: {
       ...process.env,
       AGENT_TOKEN: token,
-      AGENT_APPROVAL_URL: approvalUrl,
+      AGENT_APPROVAL_URL: currentApprovalUrl,
+      // 审批服务共享密钥：后端回调 /approve 时必须携带，
+      // 防止本机其他进程扫描到端口后伪造批准请求
+      AGENT_APPROVAL_SECRET: currentApprovalSecret,
       AGENT_PORT: String(AGENT_PORT),
       AGENT_HOST: '127.0.0.1',
       PYTHONUNBUFFERED: '1',
@@ -96,7 +111,9 @@ export async function spawnAgentProcess(token: string, approvalUrl = ''): Promis
     if (code !== 0 && restartCount < MAX_RESTARTS) {
       restartCount++
       console.log(`[Agent] 自动重启 (${restartCount}/${MAX_RESTARTS})...`)
-      setTimeout(() => spawnAgentProcess(token), 2000)
+      // 不传 approvalUrl：spawnAgentProcess 内部复用 currentApprovalUrl，
+      // 保证重启后的后端仍能连上 shell 审批服务
+      setTimeout(() => { void spawnAgentProcess(token) }, 2000)
     }
   })
 

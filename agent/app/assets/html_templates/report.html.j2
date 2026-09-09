@@ -28,9 +28,9 @@
     {% elif section.type == 'cards' %}
       {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
       <div class="card-grid cols-{{ section.cols | default(3) }}">
-        {% for card in section['items'] %}
+        {% for card in (section.get('items') or []) %}
         <div class="card">
-          {% if card.icon %}<div class="card-icon">{{ card.icon }}</div>{% endif %}
+          {% if card.icon %}<div class="card-icon">{{ icon(card.icon, 22) }}</div>{% endif %}
           <h3>{{ card.title }}</h3>
           <p>{{ card.content }}</p>
           {% if card.metric %}
@@ -72,8 +72,9 @@
     {% elif section.type == 'stats' %}
       {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
       <div class="stats-row">
-        {% for stat in section['items'] %}
+        {% for stat in (section.get('items') or []) %}
         <div class="stat-item">
+          {% if stat.icon %}{{ icon(stat.icon, 20) }}{% endif %}
           <div class="stat-value">{{ stat.value }}</div>
           <div class="stat-label">{{ stat.label }}</div>
         </div>
@@ -86,7 +87,7 @@
     {% elif section.type == 'list' %}
       {% if section.title %}<h3>{{ section.title }}</h3>{% endif %}
       <ul class="feature-list">
-        {% for item in section['items'] %}
+        {% for item in (section.get('items') or []) %}
         <li>{{ item }}</li>
         {% endfor %}
       </ul>
@@ -94,7 +95,7 @@
     {% elif section.type == 'timeline' %}
       {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
       <div class="timeline">
-        {% for item in section['items'] %}
+        {% for item in (section.get('items') or []) %}
         <div class="timeline-item">
           <h4>{{ item.title }}</h4>
           {% if item.time %}<span class="time">{{ item.time }}</span>{% endif %}

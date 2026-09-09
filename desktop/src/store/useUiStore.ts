@@ -2,6 +2,20 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Conversation, Message, ModelInfo } from '../types'
 
+// 内存中缓存的会话消息条数上限（按 conversationId）。
+// 切换/流式写入过的会话会进入缓存，长时间使用不清理会持续增长，
+// 超过上限后丢弃最早写入的会话缓存（仅影响切回时的加载速度，数据仍在服务端）。
+const MAX_CACHED_CONVERSATIONS = 30
+
+function capMessageCache(cache: Record<string, Message[]>): Record<string, Message[]> {
+  const keys = Object.keys(cache)
+  if (keys.length <= MAX_CACHED_CONVERSATIONS) return cache
+  const kept = keys.slice(keys.length - MAX_CACHED_CONVERSATIONS)
+  const next: Record<string, Message[]> = {}
+  for (const k of kept) next[k] = cache[k]
+  return next
+}
+
 interface UiState {
   // 路由与布局（Phase B P0：新增 audit / skills；P1：新增 connectors；P2：新增 projects；P3：新增 workflows）
   activeTab: 'chat' | 'knowledge' | 'tools' | 'usage' | 'settings' | 'audit' | 'skills' | 'connectors' | 'projects' | 'workflows'
@@ -17,6 +31,11 @@ interface UiState {
   currentConversationId: string | null
   setCurrentConversationId: (id: string) => void
   setConversations: (convs: Conversation[]) => void
+
+  // 对话/工作双模式
+  chatMode: 'chat' | 'work'
+  modeCurrentIds: Record<'chat' | 'work', string | null>
+  setChatMode: (mode: 'chat' | 'work') => void
 
   // 消息列表
   messages: Message[]
@@ -80,6 +99,19 @@ export const useUiStore = create<UiState>()(
       // 会话
       conversations: [],
       currentConversationId: null,
+      // 对话/工作双模式：chatMode 当前激活分区；modeCurrentIds 记录各分区
+      // 各自的当前会话，切换 Tab 时互不干扰
+      chatMode: 'chat',
+      modeCurrentIds: { chat: null, work: null } as Record<'chat' | 'work', string | null>,
+      setChatMode: (mode) =>
+        set((state) => ({
+          chatMode: mode,
+          modeCurrentIds: {
+            ...state.modeCurrentIds,
+            [state.chatMode]: state.currentConversationId,
+            [mode]: state.modeCurrentIds[mode],
+          },
+        })),
       setCurrentConversationId: (id) => set({ currentConversationId: id }),
       setConversations: (convs) => set({ conversations: convs }),
 
@@ -92,7 +124,7 @@ export const useUiStore = create<UiState>()(
           if (state.currentConversationId) {
             cache[state.currentConversationId] = msgs
           }
-          return { messages: msgs, messageCache: cache }
+          return { messages: msgs, messageCache: capMessageCache(cache) }
         }),
       appendMessage: (msg) =>
         set((state) => {
@@ -101,7 +133,7 @@ export const useUiStore = create<UiState>()(
           if (state.currentConversationId) {
             cache[state.currentConversationId] = next
           }
-          return { messages: next, messageCache: cache }
+          return { messages: next, messageCache: capMessageCache(cache) }
         }),
       updateMessage: (msgId, updates) =>
         set((state) => {
@@ -112,14 +144,14 @@ export const useUiStore = create<UiState>()(
           if (state.currentConversationId) {
             cache[state.currentConversationId] = next
           }
-          return { messages: next, messageCache: cache }
+          return { messages: next, messageCache: capMessageCache(cache) }
         }),
       cacheMessages: (conversationId) =>
         set((state) => ({
-          messageCache: {
+          messageCache: capMessageCache({
             ...state.messageCache,
             [conversationId]: state.messages,
-          },
+          }),
         })),
       getCachedMessages: (conversationId) => {
         const state = get()
@@ -136,7 +168,7 @@ export const useUiStore = create<UiState>()(
           // 如果当前正在查看该对话，同时更新 messages
           const isCurrent = state.currentConversationId === conversationId
           return {
-            messageCache: cache,
+            messageCache: capMessageCache(cache),
             messages: isCurrent ? cache[conversationId] : state.messages,
           }
         }),
@@ -146,7 +178,7 @@ export const useUiStore = create<UiState>()(
           cache[conversationId] = [...(cache[conversationId] || []), msg]
           const isCurrent = state.currentConversationId === conversationId
           return {
-            messageCache: cache,
+            messageCache: capMessageCache(cache),
             messages: isCurrent ? cache[conversationId] : state.messages,
           }
         }),

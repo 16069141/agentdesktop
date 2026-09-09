@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from ..connectors import (
     ReadOnlyViolation,
     query_db,
+    test_postgres,
     test_sqlite,
     validate_read_only_sql,
 )
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/db-connectors", tags=["db-connectors"])
 repo = db_connector_repo
 
-VALID_DB_TYPES = {"sqlite"}  # postgres / mysql 预留
+VALID_DB_TYPES = {"sqlite", "postgres"}  # mysql 预留
 
 
 class DbConnCreate(BaseModel):
@@ -61,7 +62,7 @@ async def create_connector(body: DbConnCreate):
     if body.db_type not in VALID_DB_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"db_type 仅支持 sqlite（已实现）；postgres / mysql 预留",
+            detail=f"db_type 仅支持 sqlite / postgres（已实现）；mysql 预留",
         )
     if await repo.get(body.id):
         raise HTTPException(status_code=409, detail=f"连接 {body.id} 已存在")
@@ -90,7 +91,7 @@ async def update_connector(conn_id: str, body: DbConnUpdate):
         if value is not None:
             fields[attr] = value
     if "db_type" in fields and fields["db_type"] not in VALID_DB_TYPES:
-        raise HTTPException(status_code=400, detail="db_type 仅支持 sqlite（已实现）")
+        raise HTTPException(status_code=400, detail="db_type 仅支持 sqlite / postgres（已实现）")
     updated = await repo.update(conn_id, fields)
     return updated
 
@@ -109,6 +110,8 @@ async def test_connector(conn_id: str):
     conn = await repo.get(conn_id)
     if not conn:
         raise HTTPException(status_code=404, detail="连接不存在")
+    if conn["dbType"] == "postgres":
+        return await test_postgres(conn["dsn"], timeout_sec=conn.get("timeoutSec", 10))
     if conn["dbType"] != "sqlite":
         return {"ok": False, "error": f"{conn['dbType']} 适配器待接入"}
     return await test_sqlite(conn["dsn"], timeout_sec=conn.get("timeoutSec", 10))

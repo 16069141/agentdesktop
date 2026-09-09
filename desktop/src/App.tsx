@@ -20,7 +20,7 @@ import type { Conversation, ModelInfo } from './types'
 export default function App() {
   useTheme()
 
-  const { activeTab, setConversations, setModels, currentConversationId, setCurrentConversationId } =
+  const { activeTab, setConversations, setModels, setCurrentConversationId, chatMode } =
     useUiStore()
 
   const [phase, setPhase] = useState<'booting' | 'ready' | 'error'>('booting')
@@ -44,7 +44,33 @@ export default function App() {
     }
   }
 
-  /** 应用启动：等待后端就绪 → 并行拉取会话与模型 */
+  /** 加载指定模式（对话/工作）的会话列表；为空自动新建首个会话 */
+  const loadConversations = async (mode: 'chat' | 'work') => {
+    try {
+      const list = (await api.conversations.list(mode).catch(() => [])) as Conversation[]
+      if (list.length === 0) {
+        const created = (await api.conversations.create({
+          title: '新对话',
+          modelId: useUiStore.getState().currentModelId,
+          mode,
+        })) as Conversation
+        setConversations([created])
+        setCurrentConversationId(created.id)
+        return created.id
+      }
+      setConversations(list)
+      // 恢复该模式上次停留的会话；不存在则取最新
+      const savedId = useUiStore.getState().modeCurrentIds[mode]
+      const target = savedId && list.some((c) => c.id === savedId) ? savedId : list[0].id
+      setCurrentConversationId(target)
+      return target
+    } catch (e) {
+      console.error(`[App] 加载${mode}会话失败:`, e)
+      return null
+    }
+  }
+
+  /** 应用启动：等待后端就绪 → 拉模型 → 加载当前模式会话 */
   useEffect(() => {
     if (bootedRef.current) return
     bootedRef.current = true
@@ -53,29 +79,8 @@ export default function App() {
       try {
         // 1) 等待后端就绪：优先 IPC 通知，回退到轮询
         await waitForBackend(30_000)
-
-        // 2) 并行拉取模型列表和会话列表（两者无依赖关系）
-        const [, convsResult] = await Promise.all([
-          refreshModels(),
-          api.conversations.list().catch(() => [] as Conversation[]),
-        ])
-
-        // 3) 处理会话列表；为空则自动创建首个会话
-        const list = (Array.isArray(convsResult) ? convsResult : []) as Conversation[]
-        if (list.length === 0) {
-          const created = (await api.conversations.create({
-            title: '新对话',
-            modelId: useUiStore.getState().currentModelId,
-          })) as Conversation
-          setConversations([created])
-          setCurrentConversationId(created.id)
-        } else {
-          setConversations(list)
-          if (!currentConversationId || !list.some((c) => c.id === currentConversationId)) {
-            setCurrentConversationId(list[0].id)
-          }
-        }
-
+        // 2) 拉取模型列表
+        await refreshModels()
         setPhase('ready')
       } catch (e) {
         console.error('[App] 启动失败:', e)
@@ -87,6 +92,13 @@ export default function App() {
     boot()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** 当前模式会话加载：启动就绪后 / 切换 对话↔工作 Tab 时触发 */
+  useEffect(() => {
+    if (phase !== 'ready') return
+    loadConversations(chatMode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMode, phase])
 
   if (phase !== 'ready') {
     return (

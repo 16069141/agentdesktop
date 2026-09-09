@@ -47,34 +47,55 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const [showTimeline, setShowTimeline] = useState(false)
   const [copied, setCopied] = useState(false)
   const [hasSelection, setHasSelection] = useState(false)
+  /** 执行过程面板中当前展开详情的步骤 id（null = 全部折叠） */
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  /** 步骤详情复制反馈 */
+  const [copiedDetailId, setCopiedDetailId] = useState<string | null>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
   const isUser = message.role === 'user'
   const isAssistant = message.role === 'assistant'
   const isSystem = message.role === 'system'
 
-  const traceCount = trace?.length ?? 0
-  const citationCount = citations?.length ?? 0
-  const hasTimeline = traceCount > 0 || citationCount > 0
-
-  /** 从正文中提取绝对路径（兜底：模型直接在文本里输出交付路径） */
+  /** 从正文中提取绝对路径（兜底：模型直接在文本里输出交付路径）
+   *  正则要求至少 2 级目录段（排除 `/html/xxx.html` 这类相对片段误匹配） */
   const textFilePaths = useMemo(() => {
-    const re = /(?:\/(?:[\w\-. \u4e00-\u9fa5]+\/)+[\w\-. \u4e00-\u9fa5]+\.(?:html?|md|markdown|txt|docx?|xlsx?|pptx?|pdf|json|csv|png|jpe?g|gif|svg|zip|yaml|yml))/g
+    const re = /(?:\/(?:[\w\-. \u4e00-\u9fa5]+\/){2,}[\w\-. \u4e00-\u9fa5]+\.(?:html?|md|markdown|txt|docx?|xlsx?|pptx?|pdf|json|csv|png|jpe?g|gif|svg|zip|yaml|yml))/g
     const found = message.content?.match(re) || []
     return [...new Set(found.map((p) => p.trim()))]
   }, [message.content])
 
-  /** 交付文件总列表：结构化 saved_files + 正文兜底，去重 */
+  /** 交付文件总列表：结构化 saved_files + 正文兜底，按文件名去重（同名只保留结构化完整路径） */
   const deliverFiles = useMemo(() => {
     const structured = message.generatedFiles || []
-    return [...new Set([...structured, ...textFilePaths])]
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const p of [...structured, ...textFilePaths]) {
+      const name = p.split('/').pop() || p
+      if (seen.has(name)) continue
+      seen.add(name)
+      out.push(p)
+    }
+    return out
   }, [message.generatedFiles, textFilePaths])
 
-  /** 流式生成期间：时间线自动展开（豆包式实时展示思考/执行过程） */
-  useEffect(() => {
-    if (streaming && isAssistant) {
-      setShowTimeline(true)
+  /** 连续 thinking 合并为一条（多个"正在思考"不重复展示，只保留最新内容） */
+  const mergedTrace = useMemo(() => {
+    if (!trace || trace.length === 0) return trace
+    const out: typeof trace = []
+    for (const item of trace) {
+      const last = out[out.length - 1]
+      if (item.kind === 'thinking' && last && last.kind === 'thinking') {
+        if (item.detail) last.detail = item.detail
+        continue
+      }
+      out.push(item)
     }
-  }, [streaming, isAssistant])
+    return out
+  }, [trace])
+
+  const traceCount = mergedTrace?.length ?? 0
+  const citationCount = citations?.length ?? 0
+  const hasTimeline = traceCount > 0 || citationCount > 0
 
   /** 工具名 → 中文动作 + 图标（豆包式步骤卡） */
   const TOOL_STEP: Record<string, { icon: string; action: string }> = {
@@ -106,10 +127,51 @@ const MessageItem: React.FC<MessageItemProps> = ({
     return argsRaw.length > 60 ? `${argsRaw.slice(0, 60)}…` : argsRaw
   }
 
-  /** 判断某条 trace 是否处于"进行中"（tool_call 尚未收到对应 tool_result） */
+  /** 判断某条 tool_call 是否仍"进行中"：
+   *  按工具名配对后续 tool_result（支持同一回合并行多次调用），
+   *  而不是只看相邻下一条 —— 并行调用时多条 tool_call 连续出现，
+   *  旧逻辑会把已完成步骤误判为进行中 */
   const isStepPending = (index: number): boolean => {
-    const next = trace?.[index + 1]
-    return !(next && next.kind === 'tool_result')
+    const item = trace?.[index]
+    if (!item || item.kind !== 'tool_call') return false
+    const toolName = item.label.replace('调用工具：', '')
+    const rest = (trace || []).slice(index + 1)
+    return !rest.some(
+      (t) => t.kind === 'tool_result' && t.label.replace('工具返回：', '') === toolName
+    )
+  }
+
+  /** 详情文本：JSON 可解析则美化排版，否则原样 */
+  const prettyDetail = (raw: string | undefined): string => {
+    if (!raw) return ''
+    try {
+      return JSON.stringify(JSON.parse(raw), null, 2)
+    } catch {
+      return raw
+    }
+  }
+
+  /** 复制步骤详情 */
+  const copyDetail = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch { /* ignore */ }
+      document.body.removeChild(ta)
+    }
+    setCopiedDetailId(id)
+    setTimeout(() => setCopiedDetailId((cur) => (cur === id ? null : cur)), 1500)
+  }
+
+  /** 步骤卡点击：展开 / 收起详情 */
+  const toggleDetail = (id: string) => {
+    setExpandedId((cur) => (cur === id ? null : id))
   }
 
   /** 监听选中文本：是否在当前消息气泡内有选中 */
@@ -358,13 +420,31 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </button>
             {isAssistant && hasTimeline && (
               <button
-                className="px-1.5 py-0.5 rounded transition-opacity"
-                style={{ background: 'var(--bg-elev)', color: 'var(--text-dim)' }}
+                className="px-1.5 py-0.5 rounded transition-colors flex items-center gap-1"
+                style={{
+                  background: showTimeline ? 'var(--accent-soft)' : 'var(--bg-elev)',
+                  color: showTimeline ? 'var(--accent)' : 'var(--text-dim)',
+                  cursor: 'pointer',
+                }}
                 onClick={(e) => {
                   e.stopPropagation()
                   setShowTimeline((v) => !v)
                 }}
+                title={showTimeline ? '收起执行过程' : '展开执行过程'}
               >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transition: 'transform .15s ease', transform: showTimeline ? 'rotate(90deg)' : 'none' }}
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
                 {showTimeline ? '收起' : `执行过程 (${traceCount + citationCount})`}
               </button>
             )}
@@ -393,20 +473,53 @@ const MessageItem: React.FC<MessageItemProps> = ({
               )}
             </div>
             <div className="space-y-1.5">
-              {trace?.map((item, idx) => {
-                // ── 思考：蓝色卡片，流式追加文本 ──
+              {mergedTrace?.map((item, idx) => {
+                // ── 思考：蓝色卡片，流式追加文本，点击展开完整内容 ──
                 if (item.kind === 'thinking') {
+                  const expanded = expandedId === item.id
+                  const hasDetail = !!item.detail
                   return (
-                    <div key={item.id} className="flex gap-2 items-start">
+                    <div
+                      key={item.id}
+                      className="flex gap-2 items-start px-2 py-1.5 rounded-lg transition-colors"
+                      style={{
+                        background: 'var(--bg-elev)',
+                        border: '1px solid var(--border-soft)',
+                        cursor: hasDetail ? 'pointer' : 'default',
+                      }}
+                      onClick={hasDetail ? () => toggleDetail(item.id) : undefined}
+                      title={hasDetail ? (expanded ? '收起' : '点击查看完整思考内容') : undefined}
+                    >
                       <span
-                        className="mt-0.5 inline-block w-3.5 h-3.5 rounded-full"
+                        className="mt-1.5 inline-block w-2.5 h-2.5 rounded-full"
                         style={{ background: 'var(--thinking)', animation: 'pulse 1.4s ease-in-out infinite' }}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium" style={{ color: 'var(--text-dim)' }}>🤔 正在思考</div>
-                        {item.detail && (
-                          <div className="mt-0.5 leading-relaxed" style={{ color: 'var(--text-faint)' }}>
-                            {item.detail.length > 400 ? `${item.detail.slice(0, 400)}…` : item.detail}
+                        <div className="font-medium" style={{ color: 'var(--text-dim)' }}>
+                          🤔 正在思考
+                          {hasDetail && (
+                            <span className="ml-1 text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                              {expanded ? '▲ 收起' : '▼ 展开'}
+                            </span>
+                          )}
+                        </div>
+                        {hasDetail && (
+                          <div
+                            className="mt-0.5 leading-relaxed whitespace-pre-wrap break-words"
+                            style={{ color: 'var(--text-faint)', fontSize: '11px' }}
+                          >
+                            {expanded ? item.detail : item.detail!.length > 120 ? `${item.detail!.slice(0, 120)}…` : item.detail}
+                          </div>
+                        )}
+                        {expanded && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <button
+                              className="px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1"
+                              style={{ background: 'var(--bg-panel)', color: 'var(--text-dim)', border: '1px solid var(--border-soft)', cursor: 'pointer' }}
+                              onClick={(e) => { e.stopPropagation(); copyDetail(item.id, item.detail || '') }}
+                            >
+                              {copiedDetailId === item.id ? '✓ 已复制' : '复制内容'}
+                            </button>
                           </div>
                         )}
                       </div>
@@ -414,15 +527,23 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   )
                 }
 
-                // ── 工具调用：进行中 spinner / 已完成 ✓ ──
+                // ── 工具调用：进行中 spinner / 已完成 ✓，点击展开完整参数 ──
                 if (item.kind === 'tool_call') {
                   const step = TOOL_STEP[item.label.replace('调用工具：', '')] || defaultStep
                   const done = !isStepPending(idx)
+                  const expanded = expandedId === item.id
+                  const hasDetail = !!item.detail
                   return (
                     <div
                       key={item.id}
-                      className="flex gap-2 items-start px-2 py-1.5 rounded-lg"
-                      style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
+                      className="flex gap-2 items-start px-2 py-1.5 rounded-lg transition-colors"
+                      style={{
+                        background: 'var(--bg-elev)',
+                        border: '1px solid var(--border-soft)',
+                        cursor: hasDetail ? 'pointer' : 'default',
+                      }}
+                      onClick={hasDetail ? () => toggleDetail(item.id) : undefined}
+                      title={hasDetail ? (expanded ? '收起' : '点击查看完整参数') : undefined}
                     >
                       {done ? (
                         <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#22c55e', color: '#fff' }}>
@@ -444,8 +565,13 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         <div className="font-medium flex items-center gap-1.5" style={{ color: done ? 'var(--text-dim)' : 'var(--text)' }}>
                           <span>{step.icon}</span>
                           <span>{done ? step.action.replace('正在', '已') : step.action}</span>
+                          {hasDetail && (
+                            <span className="ml-auto text-[10px] flex-shrink-0" style={{ color: 'var(--text-faint)' }}>
+                              {expanded ? '▲ 收起' : '▼ 展开'}
+                            </span>
+                          )}
                         </div>
-                        {item.detail && (
+                        {!expanded && item.detail && (
                           <div
                             className="mt-0.5 font-mono truncate"
                             style={{ color: 'var(--text-faint)', fontSize: '10px' }}
@@ -454,30 +580,86 @@ const MessageItem: React.FC<MessageItemProps> = ({
                             {toolSummary(item.detail)}
                           </div>
                         )}
+                        {expanded && hasDetail && (
+                          <div className="mt-1.5">
+                            <pre
+                              className="p-2 rounded overflow-x-auto whitespace-pre-wrap break-words"
+                              style={{ background: 'var(--code-bg)', color: 'var(--text-dim)', fontFamily: 'var(--mono)', fontSize: '10px', maxHeight: '240px', overflowY: 'auto' }}
+                            >
+                              {prettyDetail(item.detail)}
+                            </pre>
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <button
+                                className="px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1"
+                                style={{ background: 'var(--bg-panel)', color: 'var(--text-dim)', border: '1px solid var(--border-soft)', cursor: 'pointer' }}
+                                onClick={(e) => { e.stopPropagation(); copyDetail(item.id, item.detail || '') }}
+                              >
+                                {copiedDetailId === item.id ? '✓ 已复制' : '复制参数'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
                 }
 
-                // ── 工具结果：完成摘要（成功/失败） ──
+                // ── 工具结果：完成摘要（成功/失败），点击展开完整内容 ──
                 if (item.kind === 'tool_result') {
                   const name = item.label.replace('工具返回：', '')
                   const step = TOOL_STEP[name] || defaultStep
+                  const expanded = expandedId === item.id
+                  const hasDetail = !!item.detail
                   return (
-                    <div key={item.id} className="flex gap-2 items-start px-2 py-1.5 rounded-lg" style={{ background: 'var(--bg-elev)' }}>
+                    <div
+                      key={item.id}
+                      className="flex gap-2 items-start px-2 py-1.5 rounded-lg transition-colors"
+                      style={{
+                        background: 'var(--bg-elev)',
+                        border: '1px solid var(--border-soft)',
+                        cursor: hasDetail ? 'pointer' : 'default',
+                      }}
+                      onClick={hasDetail ? () => toggleDetail(item.id) : undefined}
+                      title={hasDetail ? (expanded ? '收起' : '点击查看完整结果') : undefined}
+                    >
                       <span className="mt-0.5 flex-shrink-0" style={{ color: item.isError ? 'var(--danger)' : '#22c55e' }}>
                         {item.isError ? '✕' : '✓'}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium" style={{ color: item.isError ? 'var(--danger)' : '#4ade80' }}>
-                          {step.icon} {name === 'filesystem' ? '文件操作' : name === 'shell' ? '命令执行' : name} {item.isError ? '失败' : '完成'}
+                        <div className="font-medium flex items-center gap-1.5" style={{ color: item.isError ? 'var(--danger)' : '#4ade80' }}>
+                          <span>{step.icon}</span>
+                          <span>{name === 'filesystem' ? '文件操作' : name === 'shell' ? '命令执行' : name} {item.isError ? '失败' : '完成'}</span>
+                          {hasDetail && (
+                            <span className="ml-auto text-[10px] flex-shrink-0" style={{ color: 'var(--text-faint)' }}>
+                              {expanded ? '▲ 收起' : '▼ 展开'}
+                            </span>
+                          )}
                         </div>
-                        {item.detail && (
+                        {!expanded && item.detail && (
                           <div
                             className="mt-0.5 leading-relaxed line-clamp-2"
                             style={{ color: 'var(--text-faint)', fontSize: '10px' }}
                           >
                             {item.detail.length > 200 ? `${item.detail.slice(0, 200)}…` : item.detail}
+                          </div>
+                        )}
+                        {expanded && hasDetail && (
+                          <div className="mt-1.5">
+                            <pre
+                              className="p-2 rounded overflow-x-auto whitespace-pre-wrap break-words"
+                              style={{ background: 'var(--code-bg)', color: 'var(--text-dim)', fontFamily: 'var(--mono)', fontSize: '10px', maxHeight: '300px', overflowY: 'auto' }}
+                            >
+                              {prettyDetail(item.detail)}
+                            </pre>
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <button
+                                className="px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1"
+                                style={{ background: 'var(--bg-panel)', color: 'var(--text-dim)', border: '1px solid var(--border-soft)', cursor: 'pointer' }}
+                                onClick={(e) => { e.stopPropagation(); copyDetail(item.id, item.detail || '') }}
+                              >
+                                {copiedDetailId === item.id ? '✓ 已复制' : '复制结果'}
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

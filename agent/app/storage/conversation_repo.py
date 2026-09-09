@@ -20,6 +20,7 @@ def _to_camel(row) -> Dict[str, Any]:
         "id": row["id"],
         "title": row["title"],
         "modelId": row["model_id"],
+        "mode": row["mode"] if "mode" in row.keys() else "chat",
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -30,15 +31,15 @@ class ConversationRepo:
         # db_path 仅作兼容保留，实际连接统一走 db.connect()
         self.db_path = db_path
 
-    async def create(self, title: str, model_id: str) -> Dict[str, Any]:
+    async def create(self, title: str, model_id: str, mode: str = "chat") -> Dict[str, Any]:
         conv_id = str(uuid.uuid4())
         now = _now_ms()
         db = await connect()
         try:
             await db.execute(
-                "INSERT INTO conversations (id, title, model_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (conv_id, title, model_id, now, now),
+                "INSERT INTO conversations (id, title, model_id, mode, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (conv_id, title, model_id, mode or "chat", now, now),
             )
             await db.commit()
         finally:
@@ -47,18 +48,26 @@ class ConversationRepo:
             "id": conv_id,
             "title": title,
             "modelId": model_id,
+            "mode": mode or "chat",
             "createdAt": now,
             "updatedAt": now,
         }
 
-    async def list_all(self) -> List[Dict[str, Any]]:
+    async def list_all(self, mode: str | None = None) -> List[Dict[str, Any]]:
         db = await connect()
         try:
-            async with db.execute(
-                "SELECT * FROM conversations ORDER BY updated_at DESC"
-            ) as cursor:
-                rows = await cursor.fetchall()
-                return [_to_camel(r) for r in rows]
+            if mode:
+                async with db.execute(
+                    "SELECT * FROM conversations WHERE mode = ? ORDER BY updated_at DESC",
+                    (mode,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT * FROM conversations ORDER BY updated_at DESC"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            return [_to_camel(r) for r in rows]
         finally:
             await db.close()
 

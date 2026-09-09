@@ -15,7 +15,7 @@
 <section class="section" style="padding: 32px 0;">
   <div class="container">
     <div class="stats-row">
-      {% for stat in section['items'] %}
+      {% for stat in (section.get('items') or []) %}
       <div class="stat-item">
         <div class="stat-value">{{ stat.value }}</div>
         <div class="stat-label">{{ stat.label }}</div>
@@ -86,9 +86,9 @@
   <div class="container">
     {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
     <div class="card-grid cols-{{ section.cols | default(4) }}">
-      {% for card in section['items'] %}
+      {% for card in (section.get('items') or []) %}
       <div class="card">
-        {% if card.icon %}<div class="card-icon">{{ card.icon }}</div>{% endif %}
+        {% if card.icon %}<div class="card-icon">{{ icon(card.icon, 22) }}</div>{% endif %}
         <h3>{{ card.title }}</h3>
         <p>{{ card.content }}</p>
         {% if card.metric %}
@@ -118,7 +118,7 @@
     {% elif section.type == 'list' %}
       {% if section.title %}<h3>{{ section.title }}</h3>{% endif %}
       <ul class="feature-list">
-        {% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}
+        {% for item in (section.get('items') or []) %}<li>{{ item }}</li>{% endfor %}
       </ul>
     {% endif %}
   </div>

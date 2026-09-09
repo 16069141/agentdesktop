@@ -26,6 +26,8 @@ export interface ChatStreamParams {
   images?: string[]
   /** 文档附件（已由前端上传解析） */
   attachments?: FileAttachment[]
+  /** 对话/工作双模式分区 */
+  mode?: 'chat' | 'work'
 }
 
 /** 流式回调集合 */

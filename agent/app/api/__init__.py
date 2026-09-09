@@ -16,6 +16,8 @@ from .projects import router as projects_router
 from .ops import router as ops_router
 from .workflows import router as workflows_router
 from .files import router as files_router
+from .web_search_servers import router as web_search_servers_router
+from .mcp_servers import router as mcp_servers_router
 
 __all__ = [
     "conversations_router",
@@ -36,4 +38,6 @@ __all__ = [
     "ops_router",
     "workflows_router",
     "files_router",
+    "web_search_servers_router",
+    "mcp_servers_router",
 ]

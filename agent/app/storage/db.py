@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     id          TEXT PRIMARY KEY,
     title       TEXT NOT NULL,
     model_id    TEXT NOT NULL,
+    mode        TEXT NOT NULL DEFAULT 'chat',
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL
 );
@@ -72,6 +73,13 @@ async def init_db() -> None:
         # 轻量迁移：老库补 metadata 列（幂等）
         try:
             await db.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
+        except Exception:
+            pass  # 列已存在
+        # 轻量迁移：老库补 conversations.mode 列（默认 chat，兼容历史会话）
+        try:
+            await db.execute(
+                "ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'"
+            )
         except Exception:
             pass  # 列已存在
         await db.commit()

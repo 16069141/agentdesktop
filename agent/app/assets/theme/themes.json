@@ -20,7 +20,8 @@
     "fonts": {
       "heading": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
       "body": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
-      "mono": "'JetBrains Mono', 'Fira Code', monospace"
+      "mono": "'JetBrains Mono', 'Fira Code', monospace",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif"
     }
   },
   "tech_dark": {
@@ -44,7 +45,8 @@
     "fonts": {
       "heading": "'Noto Sans SC', 'PingFang SC', sans-serif",
       "body": "'Noto Sans SC', 'PingFang SC', sans-serif",
-      "mono": "'JetBrains Mono', monospace"
+      "mono": "'JetBrains Mono', monospace",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif"
     }
   },
   "minimal_white": {
@@ -68,7 +70,8 @@
     "fonts": {
       "heading": "'Noto Sans SC', 'PingFang SC', sans-serif",
       "body": "'Noto Sans SC', 'PingFang SC', sans-serif",
-      "mono": "'JetBrains Mono', monospace"
+      "mono": "'JetBrains Mono', monospace",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif"
     }
   },
   "warm_earth": {
@@ -92,7 +95,83 @@
     "fonts": {
       "heading": "'Noto Sans SC', 'PingFang SC', sans-serif",
       "body": "'Noto Sans SC', 'PingFang SC', sans-serif",
-      "mono": "'JetBrains Mono', monospace"
+      "mono": "'JetBrains Mono', monospace",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif"
+    }
+  },
+  "aurora_purple": {
+    "name": "极光紫",
+    "colors": {
+      "primary": "#7c3aed",
+      "primary_dark": "#5b21b6",
+      "primary_light": "#a78bfa",
+      "accent": "#22d3ee",
+      "bg": "#faf8ff",
+      "bg_alt": "#f3efff",
+      "bg_dark": "#1e1037",
+      "text": "#2a1e3f",
+      "text_light": "#ffffff",
+      "text_muted": "#7a6b9a",
+      "border": "#e8e2f5",
+      "success": "#10b981",
+      "warning": "#f59e0b",
+      "danger": "#ef4444"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif",
+      "mono": "'JetBrains Mono', 'Fira Code', monospace"
+    }
+  },
+  "forest_green": {
+    "name": "森林绿",
+    "colors": {
+      "primary": "#2f7d4f",
+      "primary_dark": "#1d5c36",
+      "primary_light": "#5ba97c",
+      "accent": "#d9a441",
+      "bg": "#fbfdfb",
+      "bg_alt": "#f0f7f2",
+      "bg_dark": "#0e2a1a",
+      "text": "#1c2b22",
+      "text_light": "#ffffff",
+      "text_muted": "#5f7366",
+      "border": "#dcebe1",
+      "success": "#16a34a",
+      "warning": "#eab308",
+      "danger": "#dc2626"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif",
+      "mono": "'JetBrains Mono', 'Fira Code', monospace"
+    }
+  },
+  "sunset_orange": {
+    "name": "落日橙",
+    "colors": {
+      "primary": "#f97316",
+      "primary_dark": "#c2410c",
+      "primary_light": "#fb923c",
+      "accent": "#db2777",
+      "bg": "#fffaf5",
+      "bg_alt": "#fff3e6",
+      "bg_dark": "#2b1508",
+      "text": "#3b2412",
+      "text_light": "#ffffff",
+      "text_muted": "#8a6a55",
+      "border": "#f7e3d3",
+      "success": "#16a34a",
+      "warning": "#f59e0b",
+      "danger": "#dc2626"
+    },
+    "fonts": {
+      "heading": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "body": "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      "serif": "'Noto Serif SC', 'Songti SC', 'STSong', serif",
+      "mono": "'JetBrains Mono', 'Fira Code', monospace"
     }
   }
 }

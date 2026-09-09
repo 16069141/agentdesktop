@@ -54,7 +54,7 @@
     {% elif section.type == 'cards' %}
       {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
       <div class="card-grid cols-{{ section.cols | default(2) }}">
-        {% for card in section['items'] %}
+        {% for card in (section.get('items') or []) %}
         <div class="card{% if card.highlight %} col-highlight{% endif %}">
           {% if card.tag %}<span class="tag tag-primary mb-2">{{ card.tag }}</span>{% endif %}
           <h3>{{ card.title }}</h3>
@@ -107,7 +107,7 @@
     {% elif section.type == 'list' %}
       {% if section.title %}<h3>{{ section.title }}</h3>{% endif %}
       <ul class="feature-list">
-        {% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}
+        {% for item in (section.get('items') or []) %}<li>{{ item }}</li>{% endfor %}
       </ul>
 
     {% elif section.type == 'cta' %}

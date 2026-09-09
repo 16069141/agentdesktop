@@ -279,6 +279,36 @@ CREATE TABLE IF NOT EXISTS field_mappings (
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
 );
+
+-- 联网搜索服务（web_search 工具的后端 provider 配置）
+CREATE TABLE IF NOT EXISTS web_search_servers (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    provider      TEXT NOT NULL,                  -- tavily|bing|brave|serpapi|duckduckgo
+    base_url      TEXT,                           -- 可选：自定义网关/代理
+    api_key_ref   TEXT,                           -- keychain 引用名
+    enabled       INTEGER DEFAULT 1,
+    max_results   INTEGER DEFAULT 5,
+    timeout_sec   INTEGER DEFAULT 15,
+    last_health_at INTEGER,
+    last_health_ok INTEGER,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
+
+-- 外部 MCP Server（动态挂载为 Agent 工具）
+CREATE TABLE IF NOT EXISTS mcp_servers (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    url           TEXT NOT NULL,                  -- MCP HTTP/SSE 端点
+    headers       TEXT,                           -- JSON：附加请求头
+    enabled       INTEGER DEFAULT 1,
+    tools_cache   TEXT,                           -- JSON：tools/list 缓存（名称+描述+schema）
+    last_health_at INTEGER,
+    last_health_ok INTEGER,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
 """
 
 
@@ -380,6 +410,13 @@ async def init_and_seed() -> None:
         # 1.5 幂等迁移：老库补 messages.metadata 列（交付文件持久化）
         try:
             await db.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
+        except Exception:
+            pass  # 列已存在
+        # 1.6 幂等迁移：老库补 conversations.mode 列（对话/工作双分区）
+        try:
+            await db.execute(
+                "ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'"
+            )
         except Exception:
             pass  # 列已存在
         # 2. 幂等迁移

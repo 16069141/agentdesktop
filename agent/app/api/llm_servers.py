@@ -16,6 +16,7 @@
 import json
 import logging
 import time
+from urllib.parse import unquote
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -26,6 +27,19 @@ from ..security import keychain
 from ..storage.llm_servers import LlmServerRepo
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_server_id(server_id: str) -> str:
+    """server_id 可含斜杠（如 z-ai/glm-5.3-free）。
+
+    `{server_id:path}` 对 URL 编码的 %2F 在不同 ASGI 实现下解码行为不一，
+    统一 unquote 兜底，保证删除/测试/同步等按原始 id 命中。
+    """
+    try:
+        return unquote(server_id)
+    except Exception:  # noqa: BLE001
+        return server_id
+
 
 router = APIRouter(prefix="/api/llm-servers", tags=["llm-servers"])
 repo = LlmServerRepo()
@@ -60,11 +74,14 @@ def _mask(server: dict) -> dict:
 
 
 def _filter_by_whitelist(models: list[str], allowed: list[str]) -> list[str]:
-    """按白名单过滤模型；白名单为空时不限制。"""
+    """按白名单过滤模型；白名单为空时不限制。
+
+    大小写不敏感：用户填 GLM-4.7 也能命中真实 id glm-4.7。
+    """
     if not allowed:
         return models
-    allowed_set = {m.strip() for m in allowed if m.strip()}
-    return [m for m in models if m in allowed_set]
+    allowed_set = {m.strip().lower() for m in allowed if m.strip()}
+    return [m for m in models if m.lower() in allowed_set]
 
 
 async def _probe_models(
@@ -152,6 +169,7 @@ async def create_server(body: ServerCreate):
 
 @router.put("/{server_id:path}")
 async def update_server(server_id: str, body: ServerUpdate):
+    server_id = _decode_server_id(server_id)
     server = await repo.get(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="连接不存在")
@@ -187,6 +205,9 @@ async def update_server(server_id: str, body: ServerUpdate):
 
 @router.delete("/{server_id:path}")
 async def delete_server(server_id: str):
+    # 兼容两种编码：`{server_id:path}` 收到 %2F 时可能保留编码形态，
+    # 统一 unquote 兜底（server_id 本身允许含斜杠，如 z-ai/glm-5.3-free）
+    server_id = _decode_server_id(server_id)
     server = await repo.get(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="连接不存在")
@@ -199,6 +220,7 @@ async def delete_server(server_id: str):
 
 @router.post("/{server_id:path}/test")
 async def test_server(server_id: str):
+    server_id = _decode_server_id(server_id)
     server = await repo.get(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="连接不存在")
@@ -229,6 +251,7 @@ async def test_server(server_id: str):
 
 @router.post("/{server_id:path}/sync-models")
 async def sync_models(server_id: str):
+    server_id = _decode_server_id(server_id)
     server = await repo.get(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="连接不存在")
@@ -261,6 +284,7 @@ async def sync_models(server_id: str):
 
 @router.get("/{server_id:path}/models")
 async def get_models(server_id: str):
+    server_id = _decode_server_id(server_id)
     server = await repo.get(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="连接不存在")
@@ -270,6 +294,7 @@ async def get_models(server_id: str):
 @router.get("/{server_id:path}/api-key")
 async def get_api_key(server_id: str):
     """返回真实 API Key（编辑时回填用；仅本地回环 + Token 鉴权可访问）。"""
+    server_id = _decode_server_id(server_id)
     server = await repo.get(server_id)
     if not server:
         raise HTTPException(status_code=404, detail="连接不存在")

@@ -23,6 +23,7 @@ msg_repo = MessageRepo()
 class CreateConversationRequest(BaseModel):
     title: str = "新对话"
     modelId: str = ""
+    mode: str = "chat"
 
 
 class UpdateConversationRequest(BaseModel):
@@ -36,13 +37,15 @@ class GenerateTitleRequest(BaseModel):
 
 
 @router.get("")
-async def list_conversations():
-    return await conv_repo.list_all()
+async def list_conversations(mode: str | None = None):
+    """列出会话；mode=chat/work 按分区过滤，缺省返回全部（兼容旧前端）。"""
+    return await conv_repo.list_all(mode=mode or None)
 
 
 @router.post("")
 async def create_conversation(req: CreateConversationRequest):
-    return await conv_repo.create(title=req.title or "新对话", model_id=req.modelId)
+    mode = req.mode if req.mode in ("chat", "work") else "chat"
+    return await conv_repo.create(title=req.title or "新对话", model_id=req.modelId, mode=mode)
 
 
 @router.get("/{conv_id:path}")

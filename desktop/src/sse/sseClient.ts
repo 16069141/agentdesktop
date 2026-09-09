@@ -203,6 +203,7 @@ export async function streamChat(
         model_id: params.modelId,
         images: params.images || [],
         attachments: params.attachments || [],
+        mode: params.mode || 'chat',
       }),
       signal,
     })

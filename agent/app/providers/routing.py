@@ -7,12 +7,63 @@
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from typing import Optional
 
 from .base import BaseProvider, ModelInfo
 
 logger = logging.getLogger(__name__)
+
+# 默认路由候选：按任务类型给出候选模型（按优先级排列）。
+# 运行时挑选「实际已安装」的第一个候选，避免硬编码模型名换机/重装后失效。
+# 可通过环境变量 AGENT_ROUTING_CANDIDATES 覆盖，换机/换模型无需改代码：
+#   AGENT_ROUTING_CANDIDATES='{"general":["model-a","model-b"],"coding":["model-c"]}'
+DEFAULT_ROUTING_CANDIDATES: dict[str, list[str]] = {
+    # 通用对话：优先长上下文 Qwen2.5，其次本地已装的其他 Qwen
+    "general": [
+        "qwen2.5-1m-q4:latest",
+        "modelscope.cn/Qwen/Qwen2.5-7B-Instruct-GGUF:latest",
+        "qwen2.5:7b",
+    ],
+    # 编程：优先专用代码模型
+    "coding": [
+        "deepseek-coder:6.7b",
+        "qwen2.5-1m-q4:latest",
+        "modelscope.cn/Qwen/Qwen2.5-7B-Instruct-GGUF:latest",
+    ],
+}
+
+
+def load_routing_candidates() -> dict[str, list[str]]:
+    """读取路由候选模型表。
+
+    优先取环境变量 AGENT_ROUTING_CANDIDATES（JSON 对象，值为字符串数组）；
+    缺失/非法/形态不符时回退 DEFAULT_ROUTING_CANDIDATES。
+    general 作为兜底键必须存在，缺失则补默认。
+    """
+    raw = os.environ.get("AGENT_ROUTING_CANDIDATES", "").strip()
+    if not raw:
+        return DEFAULT_ROUTING_CANDIDATES
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        logger.warning(f"[router] AGENT_ROUTING_CANDIDATES 非法 JSON，回退默认: {exc}")
+        return DEFAULT_ROUTING_CANDIDATES
+    if not isinstance(data, dict):
+        logger.warning("[router] AGENT_ROUTING_CANDIDATES 不是 JSON 对象，回退默认")
+        return DEFAULT_ROUTING_CANDIDATES
+    cleaned: dict[str, list[str]] = {}
+    for key, val in data.items():
+        if isinstance(val, list) and val and all(
+            isinstance(x, str) and x.strip() for x in val
+        ):
+            cleaned[str(key)] = [str(x) for x in val]
+    if "general" not in cleaned:
+        cleaned["general"] = DEFAULT_ROUTING_CANDIDATES["general"]
+        logger.warning("[router] AGENT_ROUTING_CANDIDATES 缺少 general 键，已补默认")
+    return cleaned
 
 
 class ProviderRegistry:
@@ -73,23 +124,19 @@ def _probe_server_models() -> dict[str, list[str]]:
     if _model_probe_cache and now - _model_probe_cache.get("ts", 0) < _MODEL_PROBE_TTL_SEC:
         return _model_probe_cache.get("by_server", {})
 
-    by_server: dict[str, list[str]] = {}
     try:
         from ..storage.llm_servers import list_servers_sync
-        servers = list_servers_sync()
+        servers = [s for s in list_servers_sync() if s.get("enabled")]
     except Exception:
         servers = []
 
     import json as _json
     import urllib.request as _req
 
-    for s in servers:
-        if not s.get("enabled"):
-            continue
+    def _probe_one(s: dict) -> tuple[str, list[str]]:
+        """探测单台服务器：密钥解析 + 候选 base 逐个试 /models。"""
         base_url = s.get("base_url", "").rstrip("/")
-        if not base_url.endswith("/v1"):
-            base_url = base_url + "/v1"
-        # 读取 API Key（agnes 等需鉴权服务的 /v1/models 也要求 Bearer token）
+        # 读取 API Key（agnes 等需鉴权服务的 /models 也要求 Bearer token）
         api_key = ""
         ref = s.get("api_key_ref")
         if ref:
@@ -98,22 +145,39 @@ def _probe_server_models() -> dict[str, list[str]]:
                 api_key = _kc.retrieve_sync(ref) or ""
             except Exception:
                 pass
-        try:
-            opener = _req.build_opener(_req.ProxyHandler({}))  # 显式禁用代理
-            req = _req.Request(f"{base_url}/models")
-            if api_key:
-                req.add_header("Authorization", f"Bearer {api_key}")
-            with opener.open(req, timeout=5.0) as resp:
-                payload = _json.loads(resp.read().decode("utf-8"))
-                ids = [m.get("id", "") for m in payload.get("data", []) if m.get("id")]
-            # 按白名单过滤（空列表表示不限制）
-            allowed = s.get("allowed_models") or []
-            if allowed:
-                allowed_set = {m.strip() for m in allowed if m.strip()}
-                ids = [m for m in ids if m in allowed_set]
-            by_server[s["id"]] = ids
-        except Exception as exc:
-            logger.debug(f"[router] 探测 {s.get('id')} 模型列表失败: {exc}")
+        # 候选 base：原始路径优先（智谱自带版本号），失败才补 /v1（Ollama）
+        candidates = [base_url]
+        if not base_url.endswith("/v1"):
+            candidates.append(base_url + "/v1")
+        for cand in candidates:
+            try:
+                opener = _req.build_opener(_req.ProxyHandler({}))  # 显式禁用代理
+                req = _req.Request(f"{cand}/models")
+                if api_key:
+                    req.add_header("Authorization", f"Bearer {api_key}")
+                with opener.open(req, timeout=5.0) as resp:
+                    payload = _json.loads(resp.read().decode("utf-8"))
+                    ids = [m.get("id", "") for m in payload.get("data", []) if m.get("id")]
+                # 按白名单过滤（空列表表示不限制；大小写不敏感）
+                allowed = s.get("allowed_models") or []
+                if allowed:
+                    allowed_set = {m.strip().lower() for m in allowed if m.strip()}
+                    ids = [m for m in ids if m.lower() in allowed_set]
+                return s["id"], ids  # 找到可用 base 即停
+            except Exception as exc:
+                logger.debug(f"[router] 探测 {s.get('id')} 候选 {cand} 失败: {exc}")
+                continue
+        return s["id"], []
+
+    # 各服务器探测互相独立（每台最多 2 候选 × 5s 超时），线程池并发：
+    # 总耗时 ≈ 最慢一台，避免 N 台服务器串行累加超时。
+    by_server: dict[str, list[str]] = {}
+    if servers:
+        from concurrent.futures import ThreadPoolExecutor
+        max_workers = min(8, len(servers))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for sid, ids in pool.map(_probe_one, servers):
+                by_server[sid] = ids
 
     _model_probe_cache["by_server"] = by_server
     _model_probe_cache["ts"] = now
@@ -229,22 +293,9 @@ def resolve_model(
     if user_preferred and user_preferred in actual_models:
         return user_preferred, actual_models[user_preferred]
 
-    # 默认路由：按任务类型给出候选模型（按优先级排列）。
+    # 默认路由：按任务类型给出候选模型（按优先级排列，可用环境变量覆盖）。
     # 运行时会挑选「实际已安装」的第一个候选，避免硬编码的模型名在换机/重装后失效。
-    routing_candidates: dict[str, list[str]] = {
-        # 通用对话：优先长上下文 Qwen2.5，其次本地已装的其他 Qwen
-        "general": [
-            "qwen2.5-1m-q4:latest",
-            "modelscope.cn/Qwen/Qwen2.5-7B-Instruct-GGUF:latest",
-            "qwen2.5:7b",
-        ],
-        # 编程：优先专用代码模型
-        "coding": [
-            "deepseek-coder:6.7b",
-            "qwen2.5-1m-q4:latest",
-            "modelscope.cn/Qwen/Qwen2.5-7B-Instruct-GGUF:latest",
-        ],
-    }
+    routing_candidates = load_routing_candidates()
 
     candidates = routing_candidates.get(task_type) or routing_candidates["general"]
 

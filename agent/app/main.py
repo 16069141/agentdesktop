@@ -34,6 +34,8 @@ from .api import (
     ops_router,
     workflows_router,
     files_router,
+    web_search_servers_router,
+    mcp_servers_router,
 )
 from .storage import (
     init_and_seed,
@@ -139,6 +141,8 @@ app.include_router(projects_router)
 app.include_router(ops_router)
 app.include_router(workflows_router)
 app.include_router(files_router)
+app.include_router(web_search_servers_router)
+app.include_router(mcp_servers_router)
 
 
 @app.get("/healthz")

@@ -36,9 +36,9 @@
       {% if section.title %}<h2 class="text-center">{{ section.title }}</h2>{% endif %}
       {% if section.subtitle %}<p class="text-center text-muted mb-4">{{ section.subtitle }}</p>{% endif %}
       <div class="card-grid cols-{{ section.cols | default(3) }}">
-        {% for card in section['items'] %}
+        {% for card in (section.get('items') or []) %}
         <div class="card">
-          {% if card.icon %}<div class="card-icon">{{ card.icon }}</div>{% endif %}
+          {% if card.icon %}<div class="card-icon">{{ icon(card.icon, 22) }}</div>{% endif %}
           <h3>{{ card.title }}</h3>
           <p>{{ card.content }}</p>
         </div>
@@ -48,7 +48,7 @@
     {% elif section.type == 'stats' %}
       {% if section.title %}<h2 class="text-center">{{ section.title }}</h2>{% endif %}
       <div class="stats-row">
-        {% for stat in section['items'] %}
+        {% for stat in (section.get('items') or []) %}
         <div class="stat-item text-center">
           <div class="stat-value">{{ stat.value }}</div>
           <div class="stat-label">{{ stat.label }}</div>
@@ -59,7 +59,7 @@
     {% elif section.type == 'list' %}
       {% if section.title %}<h3>{{ section.title }}</h3>{% endif %}
       <ul class="feature-list">
-        {% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}
+        {% for item in (section.get('items') or []) %}<li>{{ item }}</li>{% endfor %}
       </ul>
 
     {% elif section.type == 'quote' %}

@@ -2,6 +2,7 @@ export interface Conversation {
   id: string
   title: string
   modelId: string
+  mode?: string
   createdAt: number
   updatedAt: number
 }

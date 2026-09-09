@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
+import { useUiStore } from '../../store/useUiStore'
 
 interface LlmServer {
   id: string
@@ -51,6 +52,23 @@ const ModelServersManager: React.FC = () => {
     }
   }, [])
 
+  /** 后台模型配置变化后联动：强制刷新模型列表，全局下拉菜单自动增删 */
+  const refreshGlobalModels = useCallback(async () => {
+    try {
+      const res = await api.models.refresh()
+      const models = Array.isArray(res) ? res : ((res as any)?.models ?? [])
+      if (Array.isArray(models)) {
+        useUiStore.getState().setModels(models)
+        const currentModelId = useUiStore.getState().currentModelId
+        if (!models.some((m) => m.id === currentModelId)) {
+          useUiStore.getState().setCurrentModelId(models[0]?.id ?? '')
+        }
+      }
+    } catch (e) {
+      console.warn('[ModelServers] 全局模型列表刷新失败:', e)
+    }
+  }, [])
+
   useEffect(() => {
     load()
   }, [load])
@@ -94,6 +112,7 @@ const ModelServersManager: React.FC = () => {
       setEditingId(null)
       setShowApiKey(false)
       await load()
+      await refreshGlobalModels()
     } catch (e) {
       setMsg({ kind: 'err', text: `${editingId ? '更新' : '新增'}失败：${e instanceof Error ? e.message : String(e)}` })
     }
@@ -105,6 +124,7 @@ const ModelServersManager: React.FC = () => {
     try {
       await api.llmServers.remove(id)
       await load()
+      await refreshGlobalModels()
     } catch (e) {
       setMsg({ kind: 'err', text: `删除失败：${e instanceof Error ? e.message : String(e)}` })
     }
@@ -139,6 +159,7 @@ const ModelServersManager: React.FC = () => {
     } finally {
       setBusyId(null)
       await load()
+      await refreshGlobalModels()
     }
   }
 
@@ -330,11 +351,11 @@ const ModelServersManager: React.FC = () => {
         <div>
           <label className="text-sm" style={{ color: 'var(--text-dim)' }}>模型名称（白名单）</label>
           <input type="text" value={form.allowed_models} onChange={(e) => set('allowed_models', e.target.value)}
-            placeholder="agnes-2.5-flash, agnes-2.5-pro（留空同步全部模型）"
+            placeholder="deepseek-v4-flash, deepseek-v4-pro（留空同步全部模型）"
             className="w-full mt-1 p-2 rounded-lg text-sm"
             style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)', fontFamily: 'monospace' }} />
           <div className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
-            仅同步列表内的模型，多个用英文逗号分隔；留空表示不限制，同步服务器上全部模型
+            填模型 ID（小写，如 deepseek-v4-flash），不是服务器名称；多个用英文逗号分隔，留空表示同步全部。点下方「同步模型」可查看服务器真实模型 ID
           </div>
         </div>
         <div className="flex items-center gap-4">

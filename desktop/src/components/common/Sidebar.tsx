@@ -17,6 +17,7 @@ const Sidebar: React.FC = () => {
     conversations, setConversations,
     currentConversationId, setCurrentConversationId,
     currentModelId,
+    chatMode,
   } = useUiStore()
 
   const [busy, setBusy] = useState(false)
@@ -60,6 +61,7 @@ const Sidebar: React.FC = () => {
       const conv = (await api.conversations.create({
         title: '新对话',
         modelId: currentModelId,
+        mode: chatMode,
       })) as Conversation
       setConversations([conv, ...conversations])
       setCurrentConversationId(conv.id)
@@ -137,7 +139,7 @@ const Sidebar: React.FC = () => {
           onClick={handleNewConversation}
           disabled={busy}
         >
-          ＋ 新对话
+          ＋ 新建{chatMode === 'work' ? '工作会话' : '对话'}
         </button>
       </div>
 

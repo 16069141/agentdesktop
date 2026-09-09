@@ -58,7 +58,14 @@ class AgentState:
 
 
 class ToolNode:
-    """工具执行节点：按 tool_call 列表逐一调用已注册工具。
+    """工具执行节点：执行一轮模型返回的全部 tool_calls。
+
+    两阶段执行：
+    1. 顺序预检（无外部等待）：熔断检查 → 操作级权限 → 同参去重，
+       拒绝/命中缓存的调用即时返回，不进入执行队列；
+    2. 并发执行：剩余调用相互独立（如并行读多个文件、多个 web_search），
+       用 asyncio.gather 并发，总耗时 ≈ 最慢的一个，而非各工具耗时之和。
+       结果按下标写回，顺序与 tool_calls 严格一致。
 
     P0 集成：熔断检查（高频调用保护）+ 审计落库（Who/When/What/Params/Result）
     由本节点统一负责；shell 等高危工具的二次确认走工具自身审批链路。
@@ -90,11 +97,22 @@ class ToolNode:
 
         actor = getattr(identity, "username", "local") if identity else "local"
 
-        results = []
-        for tc in tool_calls:
+        n = len(tool_calls)
+        # 按下标预分配：并发任务各自写回自己的槽位，
+        # 保证返回顺序与 tool_calls 严格一致（下游按 tool_call_id 关联、
+        # SSE 事件按序 zip 配对）。
+        results: list[dict | None] = [None] * n
+
+        # 阶段 1：顺序预检。pending 收集需要真正执行的调用；
+        # dup_slots 记录同批次内与 pending 重复的调用下标（等首个执行完复用结果）。
+        pending: list[tuple[int, str, Any, dict, str, str]] = []
+        dup_slots: list[tuple[int, str, str]] = []
+        pending_keys: set[str] = set()
+
+        for idx, tc in enumerate(tool_calls):
             tool_name = tc.get("function", {}).get("name", "")
             tool_args_str = tc.get("function", {}).get("arguments", "{}")
-            tool_call_id = tc.get("id", f"call_{len(results)}")
+            tool_call_id = tc.get("id", f"call_{idx}")
 
             try:
                 args = json.loads(tool_args_str) if tool_args_str else {}
@@ -110,11 +128,11 @@ class ToolNode:
                     conversation_id=conversation_id, session_id=session_id,
                     actor=actor, action="breaker_open",
                 )
-                results.append({
+                results[idx] = {
                     "role": "tool",
                     "tool_call_id": tool_call_id,
                     "content": f"错误：{reason}",
-                })
+                }
                 continue
 
             # ── P0：操作级权限检查（查询/创建/修改/删除分级授权）──
@@ -127,11 +145,11 @@ class ToolNode:
                         conversation_id=conversation_id, session_id=session_id,
                         actor=actor, action="deny", approved=False,
                     )
-                    results.append({
+                    results[idx] = {
                         "role": "tool",
                         "tool_call_id": tool_call_id,
                         "content": f"错误：权限不足，操作被拒绝（{op_reason}）",
-                    })
+                    }
                     continue
 
             # 去重键：工具名 + 规范化后的参数
@@ -140,7 +158,7 @@ class ToolNode:
                 logger.warning(
                     f"[agent] 检测到重复工具调用，复用上次结果: {tool_name}"
                 )
-                results.append({
+                results[idx] = {
                     "role": "tool",
                     "tool_call_id": tool_call_id,
                     "content": (
@@ -148,10 +166,27 @@ class ToolNode:
                         "[系统提示] 这是与上一次完全相同的调用，结果未发生变化。"
                         "请不要重复调用同一工具与参数，直接基于已有结果给出最终回答。"
                     ),
-                })
+                }
                 continue
 
-            tool_obj = self.registry.get(tool_name)
+            # 同批次内重复：首个调用已在执行队列，本槽位等它完成后复用结果，
+            # 避免相同调用被并发执行两遍（旧串行实现天然命中此优化）。
+            if cache_key in pending_keys:
+                dup_slots.append((idx, cache_key, tool_call_id))
+                continue
+            pending_keys.add(cache_key)
+            pending.append((idx, tool_name, self.registry.get(tool_name),
+                            args, cache_key, tool_call_id))
+
+        # 阶段 2：并发执行。各工具调用互不依赖；gather 总耗时 ≈ 最慢工具。
+        async def _run_one(
+            idx: int,
+            tool_name: str,
+            tool_obj: Any,
+            args: dict,
+            cache_key: str,
+            tool_call_id: str,
+        ) -> None:
             t0 = time.monotonic()
             if tool_obj is None:
                 result_text = f"错误：工具 '{tool_name}' 未注册"
@@ -171,14 +206,14 @@ class ToolNode:
             if cache is not None:
                 cache[cache_key] = result_text
 
-            results.append({
+            results[idx] = {
                 "role": "tool",
                 "tool_call_id": tool_call_id,
                 "content": result_text,
-            })
+            }
             logger.info(f"[agent] 工具 {tool_name} 执行完成，结果长度={len(result_text)}")
 
-            # ── P0：审计落库（脱敏后参数 + 截断结果）──
+            # ── P0：审计落库（脱敏后参数 + 截断结果，aiosqlite 串行写入，并发安全）──
             try:
                 await record_tool_call(
                     tool_name=tool_name, arguments=args, result=result_text,
@@ -188,7 +223,22 @@ class ToolNode:
             except Exception as exc:  # noqa: BLE001
                 logger.error(f"[agent] 审计记录失败: {exc}")
 
-        return results
+        if pending:
+            await asyncio.gather(*(_run_one(*p) for p in pending))
+
+        # 同批次重复调用：首个调用此刻已把结果写入 cache，复用并附加去重提示
+        for idx, cache_key, tool_call_id in dup_slots:
+            results[idx] = {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": (
+                    f"{cache[cache_key]}\n\n"
+                    "[系统提示] 这是与上一次完全相同的调用，结果未发生变化。"
+                    "请不要重复调用同一工具与参数，直接基于已有结果给出最终回答。"
+                ),
+            }
+
+        return [r for r in results if r is not None]
 
 
 class AgentOrchestrator:
@@ -245,7 +295,13 @@ class AgentOrchestrator:
                 filesystem 工具读取这些原始文件（如 docx 用 doc_to_html 转换）。
         """
 
-        messages = [{"role": "system", "content": self.system_prompt}]
+        # system prompt 不进 messages：它由 ContextManager.build_context 经
+        # system_prompt 参数统一组装（full_messages 头部唯一一份）。
+        # 旧实现同时把 system 塞进 messages，滑动窗口未裁掉它时每个请求
+        # 都会携带两份相同 system，浪费 token 且可能干扰模型。
+        # 注意：循环中途注入的 role="system" 防循环警告属于对话内消息，
+        # 不在此列，仍随 messages 正常下发。
+        messages: list[dict] = []
         if history:
             for h in history:
                 role = h.get("role", "")
@@ -363,12 +419,24 @@ class AgentOrchestrator:
             if tool_schemas and tools_enabled:
                 chat_kwargs["tools"] = tool_schemas
 
+            # 每轮 LLM 调用的事件级硬超时：上游（如智谱）在工具结果后可能出现
+            # “流式持续推空/长时间无下一事件”的挂死态——httpx 的 read 超时只在
+            # 完全无字节时才触发，逐事件超时兜底，超时即中断本轮并报错，不再挂死。
+            LLM_EVENT_TIMEOUT_SEC = 60.0
+
             try:
-                async for event in provider.chat(
+                stream = provider.chat(
                     messages=full_messages,
                     model=state.model_id,
                     **chat_kwargs,
-                ):
+                )
+                while True:
+                    try:
+                        event = await asyncio.wait_for(
+                            anext(stream), timeout=LLM_EVENT_TIMEOUT_SEC
+                        )
+                    except StopAsyncIteration:
+                        break
                     etype = event.get("type", "")
                     if etype == "text":
                         assistant_content += event.get("delta", "")
@@ -393,6 +461,19 @@ class AgentOrchestrator:
                     elif etype == "error":
                         yield {"type": "error", "message": event.get("message", "")}
                         return
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"[agent] 模型 {state.model_id} 响应超时（{LLM_EVENT_TIMEOUT_SEC}s 无数据），"
+                    f"已中断本轮"
+                )
+                yield {
+                    "type": "error",
+                    "message": (
+                        f"模型响应超时（{int(LLM_EVENT_TIMEOUT_SEC)} 秒无数据），"
+                        "已中断本轮。可重试，或切换 agnes-2.5-flash 执行复杂任务。"
+                    ),
+                }
+                return
             except Exception as exc:
                 msg = str(exc)
                 # 兜底降级：能力探测可能失效（非 Ollama 后端、探测超时等），
@@ -443,10 +524,8 @@ class AgentOrchestrator:
                 session_id=session_id,
                 identity=identity,
             )
-            state.messages.extend(tool_results)
-            state.tool_results.extend(tool_results)
 
-            # 产出工具事件，便于前端/评测观察闭环过程
+            # 产出工具事件（完整结果，供前端时间线展示/展开/复制）
             for tc in all_tool_calls:
                 fn = tc.get("function", {})
                 yield {"type": "tool_call", "name": fn.get("name", ""), "arguments": fn.get("arguments", "")}
@@ -473,14 +552,34 @@ class AgentOrchestrator:
                     "saved_files": saved_files,
                 }
 
+            # 工具结果入历史前统一截断：多轮工具调用（如数据库探查）的结果
+            # 若全量累积进 messages，会在后续轮次触发模型上下文超限而"模型调用失败"
+            # （实测 11 次 db_query、每次最多 100 行 JSON，第 12 轮必炸）。
+            # 截断只影响历史消息（模型看到的摘要）；SSE 已在上方透传完整结果，
+            # 前端「展开查看完整结果 / 复制结果」不受影响。
+            for _tr in tool_results:
+                _c = _tr.get("content")
+                if isinstance(_c, str) and len(_c) > self.cm.tool_result_max_chars:
+                    _tr["content"] = self.cm.truncate_tool_result(_c)
+            state.messages.extend(tool_results)
+            state.tool_results.extend(tool_results)
+
             # ── 同工具连续调用检测（防循环）──
             # 小模型在 coding / 分析类任务上容易陷入「同一工具换不同参数反复调」
             # 的死循环（实测 code 工具被连续调用 6 次）。这里按单轮主工具名统计
             # 连续命中次数，达到阈值（默认 3）就注入系统警告并强制退出循环。
+            #
+            # 豁免 db_query：数据库探查是"多步合理工作流"（查表清单 → 查列 →
+            # 查数据 / 分页补全），天然需要连续多轮调用同一工具。若参与计数，
+            # 模型在完整探查 28 张表元数据的过程中就会被误判为循环而强制终止，
+            # 导致后续生成 HTML/PPT 等成品步骤永远走不到（用户实测现象）。
+            # 真正的同参死循环已由上面的 tool_call_cache 同参去重拦截（复用结果、
+            # 不再执行），因此 db_query 连续调用不构成失控风险。
             called_names = [tc.get("function", {}).get("name", "") for tc in all_tool_calls]
             primary_tool = called_names[0] if called_names else None
             if primary_tool and primary_tool == _last_tool:
-                _streak += 1
+                if primary_tool != "db_query":
+                    _streak += 1
             else:
                 _last_tool = primary_tool
                 _streak = 1

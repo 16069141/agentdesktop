@@ -69,8 +69,9 @@ export const api = {
 
   // 会话 CRUD
   conversations: {
-    list: () => request<any[]>('GET', '/api/conversations'),
-    create: (data: { title: string; modelId: string }) =>
+    list: (mode?: string) =>
+      request<any[]>('GET', `/api/conversations${mode ? `?mode=${mode}` : ''}`),
+    create: (data: { title: string; modelId: string; mode?: string }) =>
       request<any>('POST', '/api/conversations', { body: data }),
     get: (id: string) => request<any>('GET', `/api/conversations/${encodeURIComponent(id)}`),
     delete: (id: string) => request<any>('DELETE', `/api/conversations/${encodeURIComponent(id)}`),
@@ -85,6 +86,7 @@ export const api = {
   // 模型
   models: {
     list: () => request<any[]>('GET', '/api/models'),
+    refresh: () => request<any[]>('POST', '/api/models/refresh'),
   },
 
   // 模型服务器连接（局域网/互联网大模型服务器）
@@ -317,5 +319,28 @@ export const api = {
         truncated: boolean
         saved_path?: string
       }>('/api/files/upload', file, onProgress),
+  },
+
+  // 联网搜索服务（web_search 工具 provider 配置）
+  webSearchServers: {
+    list: () => request<any[]>('GET', '/api/web-search-servers'),
+    create: (data: Record<string, unknown>) =>
+      request<any>('POST', '/api/web-search-servers', { body: data }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<any>('PUT', `/api/web-search-servers/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/web-search-servers/${encodeURIComponent(id)}`),
+    test: (id: string) => request<any>('POST', `/api/web-search-servers/${encodeURIComponent(id)}/test`),
+  },
+
+  // 外部 MCP Server（动态挂载为 Agent 工具）
+  mcpServers: {
+    list: () => request<any[]>('GET', '/api/mcp-servers'),
+    create: (data: Record<string, unknown>) =>
+      request<any>('POST', '/api/mcp-servers', { body: data }),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<any>('PUT', `/api/mcp-servers/${encodeURIComponent(id)}`, { body: data }),
+    remove: (id: string) => request<any>('DELETE', `/api/mcp-servers/${encodeURIComponent(id)}`),
+    test: (id: string) => request<any>('POST', `/api/mcp-servers/${encodeURIComponent(id)}/test`),
+    sync: (id: string) => request<any>('POST', `/api/mcp-servers/${encodeURIComponent(id)}/sync`),
   },
 }

@@ -338,8 +338,10 @@ class OpenAICompatibleProvider(BaseProvider):
                 else:
                     raise
         except Exception as exc:
-            logger.error(f"[provider] chat 异常: {exc}")
-            yield {"type": "error", "message": str(exc)}
+            logger.error(f"[provider] chat 异常: {type(exc).__name__}: {exc}", exc_info=True)
+            # 某些异常 str 为空（如连接层错误），message 保留类型便于定位
+            _detail = str(exc) or f"({type(exc).__name__})"
+            yield {"type": "error", "message": _detail}
             return
         finally:
             # 每次请求独立连接，用后即焚：避免坏连接污染全局连接池
@@ -415,6 +417,51 @@ class _MockStream:
 # 预置 Provider 实例
 # ──────────────────────────────────────────────────────────────────────
 
+# base_url 解析缓存（进程级，TTL 300s）：避免每次构建 Provider 都同步探测
+_BASE_RESOLVE_CACHE: dict[str, tuple[float, str]] = {}
+_BASE_RESOLVE_TTL = 300.0
+
+
+def _resolve_base_url(base_url: str, api_key: str = "", timeout: float = 6.0) -> str:
+    """在「原始 base」与「补 /v1 的 base」之间选择可用者。
+
+    背景：OpenAI 兼容网关对 /v1 的约定不统一——
+    - Ollama（http://localhost:11434）需要补 /v1；
+    - 智谱（https://open.bigmodel.cn/api/paas/v4）自带版本号，补 /v1 反而 404。
+    策略：优先用原始 base 探测 /models；失败且未以 /v1 结尾时，再试 +/v1；
+    全部失败回退原始 base（错误由上游返回，避免掩盖真实问题）。
+    """
+    import time as _time
+    import urllib.request as _req
+
+    base = (base_url or "").rstrip("/")
+    if not base:
+        return base_url or ""
+    now = _time.time()
+    hit = _BASE_RESOLVE_CACHE.get(base)
+    if hit and now - hit[0] < _BASE_RESOLVE_TTL:
+        return hit[1]
+
+    candidates = [base]
+    if not base.endswith("/v1"):
+        candidates.append(base + "/v1")
+
+    opener = _req.build_opener(_req.ProxyHandler({}))  # 禁用代理
+    for cand in candidates:
+        try:
+            req = _req.Request(f"{cand}/models")
+            if api_key:
+                req.add_header("Authorization", f"Bearer {api_key}")
+            with opener.open(req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    _BASE_RESOLVE_CACHE[base] = (now, cand)
+                    return cand
+        except Exception:  # noqa: BLE001
+            continue
+    _BASE_RESOLVE_CACHE[base] = (now, base)
+    return base
+
+
 def build_providers(settings: dict | None = None) -> list[BaseProvider]:
     """按 llm_servers 连接表构建 Provider 列表（纯云端架构）。
 
@@ -429,20 +476,38 @@ def build_providers(settings: dict | None = None) -> list[BaseProvider]:
         logger.warning(f"[provider] 读取 llm_servers 失败: {exc}")
         servers = []
 
-    for s in servers:
-        if not s.get("enabled"):
-            continue
+    enabled_servers = [s for s in servers if s.get("enabled") and s.get("base_url", "").rstrip("/")]
+
+    def _prepare(s: dict) -> dict:
+        """单台服务器的阻塞准备：密钥解析（keychain）+ base 探测（urllib）。"""
         sid = s["id"]
-        base_url = s.get("base_url", "").rstrip("/")
-        if not base_url:
-            continue
-        # 统一补 /v1（Ollama 与 OpenAI 兼容服务共用 OpenAI 兼容端点）
-        if not base_url.endswith("/v1"):
-            base_url = base_url + "/v1"
+        raw_base = s.get("base_url", "").rstrip("/")
         api_key = ""
         ref = s.get("api_key_ref")
         if ref:
-            api_key = keychain.retrieve_sync(ref) or ""
+            try:
+                api_key = keychain.retrieve_sync(ref) or ""
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[provider] {sid} 密钥解析失败: {exc}")
+        # 智能 base 解析：优先原始路径（智谱 /api/paas/v4 等自带版本号的
+        # OpenAI 兼容服务），探测 /models 失败才补 /v1（Ollama 等）。
+        return {"server": s, "sid": sid, "api_key": api_key,
+                "base_url": _resolve_base_url(raw_base, api_key)}
+
+    # 多台服务器的密钥解析/HTTP 探测互相独立，线程池并发 ——
+    # 总耗时 ≈ 最慢一台，而非各台 6s 超时的累加。
+    prepared: list[dict] = []
+    if enabled_servers:
+        from concurrent.futures import ThreadPoolExecutor
+        max_workers = min(8, len(enabled_servers))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            prepared = [r for r in pool.map(_prepare, enabled_servers)]
+
+    for item in prepared:
+        s = item["server"]
+        sid = item["sid"]
+        api_key = item["api_key"]
+        base_url = item["base_url"]
         providers.append(OpenAICompatibleProvider(
             provider_id=sid,
             name=s.get("name") or sid,

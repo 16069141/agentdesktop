@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Noto+Serif+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     /* ════════════════════════════════════════════════════════
@@ -17,6 +17,7 @@
       {% endfor %}
       --font-heading: {{ theme.fonts.heading }};
       --font-body: {{ theme.fonts.body }};
+      --font-serif: {{ theme.fonts.get('serif', "'Noto Serif SC', 'Songti SC', 'STSong', serif") }};
       --font-mono: {{ theme.fonts.mono }};
     }
 
@@ -340,9 +341,45 @@
     .tag-success { background: var(--color-success); color: #fff; }
     .tag-warning { background: var(--color-warning); color: #fff; }
     .tag-danger { background: var(--color-danger); color: #fff; }
+
+    /* ── Icon 库（内联 SVG）── */
+    .icon { display: inline-flex; vertical-align: -0.2em; flex-shrink: 0; }
+    .card-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 42px; height: 42px; border-radius: 12px;
+      background: var(--color-primary-light);
+      color: var(--color-primary-dark);
+      margin-bottom: 0.75em;
+    }
+    .card-icon .icon { color: var(--color-primary-dark); }
+    .stat-item .icon { color: var(--color-primary); margin-right: 0.35em; }
+    .cta .icon { margin-left: 0.4em; }
+
+    /* ── 自定义样式覆盖（custom_css 参数注入）── */
+    {{ custom_css | safe }}
   </style>
 </head>
 <body>
+  {% macro icon(name, size=18) -%}
+  {%- set _icons = {
+    'rocket': '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM15 6.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM13.5 8.5l-5 5-1.5 3.5 3.5-1.5 5-5A4.5 4.5 0 0 1 13.5 8.5z"/>',
+    'chart': '<path d="M4 20h16v2H2V2h2v18zm3-9h3v7H7v-7zm5-4h3v11h-3V7zm5-3h3v14h-3V4z"/>',
+    'shield': '<path d="M12 2l8 4v6c0 5.25-3.4 9.74-8 11-4.6-1.26-8-5.75-8-11V6l8-4zm0 2.3L5.5 7.8v4.2c0 4.1 2.55 7.6 6.5 8.9 3.95-1.3 6.5-4.8 6.5-8.9V7.8L12 4.3z"/>',
+    'doc': '<path d="M6 2h8l4 4v16H6V2zm7 1.5V7h3.5L13 3.5zM8 9h8v2H8V9zm0 4h8v2H8v-2zm0 4h5v2H8v-2z"/>',
+    'database': '<path d="M12 2C7.03 2 3 4.02 3 6.5v11C3 19.98 7.03 22 12 22s9-2.02 9-4.5v-11C21 4.02 16.97 2 12 2zm0 2c3.87 0 7 1.35 7 2.5S15.87 9 12 9 5 7.65 5 6.5 8.13 4 12 4zm7 13.5c0 1.15-3.13 2.5-7 2.5S5 18.65 5 17.5V14c1.74 1.5 5.55 2 7 2s5.26-.5 7-2v3.5z"/>',
+    'globe': '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm7.93 6h-3.02a15.8 15.8 0 0 0-1.35-3.42A8 8 0 0 1 19.93 8zM12 4.03c.86 1.15 1.53 2.5 1.96 3.97h-3.92c.43-1.47 1.1-2.82 1.96-3.97zM4.07 8h3.02c.27 1.23.7 2.39 1.35 3.42L5.44 12.9A8 8 0 0 1 4.07 8zm.9 7.9l3.02-1.48c.4.67.87 1.3 1.4 1.87-.9.52-1.87.95-2.87 1.27a8.06 8.06 0 0 1-1.55-1.66zM12 19.97c-.86-1.15-1.53-2.5-1.96-3.97h3.92c-.43 1.47-1.1 2.82-1.96 3.97zM14.5 14h-5c-.53-.94-.95-1.95-1.22-3h7.44c-.27 1.05-.69 2.06-1.22 3zm1.3 1.29c.53-.57 1-1.2 1.4-1.87l3.02 1.48a8.06 8.06 0 0 1-1.55 1.66c-1-.32-1.97-.75-2.87-1.27z"/>',
+    'code': '<path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>',
+    'star': '<path d="M12 2l2.9 6.26 6.6.7-4.9 4.5 1.4 6.54L12 16.9 6.1 20l1.4-6.54-4.9-4.5 6.6-.7L12 2z"/>',
+    'check': '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>',
+    'arrow': '<path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z"/>',
+    'search': '<path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/>',
+    'download': '<path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>',
+    'link': '<path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7a3.1 3.1 0 0 1-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 1 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/>'
+  } -%}
+  {%- if name and name in _icons -%}
+  <svg class="icon" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{{ _icons[name] | safe }}</svg>
+  {%- endif -%}
+  {%- endmacro %}
   {% block content %}{% endblock %}
 
   {% block scripts %}
@@ -354,7 +391,9 @@
         var el = document.getElementById('{{ chart.id }}');
         if (!el || typeof Chart === 'undefined') return;
         var ctx = el.getContext('2d');
-        var config = {{ chart.config | safe }};
+        // tojson 会把 < > & 转义为 \u003c 等，防止模型给的配置里
+        // 夹带 </script><script>... 逃逸出脚本块
+        var config = {{ chart.config | tojson }};
         if (config.type && config.data) {
           // Apply default font settings
           if (!config.options) config.options = {};
