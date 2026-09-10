@@ -26,6 +26,16 @@ desktop/dist-electron/
 desktop/build-staging/
 release/
 
+# 可移植 Python 运行时（由 scripts/fetch-python-runtime.sh 生成，700MB+，不入库）
+# CI 与打包机各自执行 fetch 脚本重新生成即可
+runtime/
+
+# 历史构建残留（69MB，鹦鹉 logo 已提取到 assets/brand/ 作为正式素材）
+build_temp/
+
+# 本地工具数据
+.workbuddy/
+
 # ── 运行时数据（上传文件 / 生成文件 / 本地数据库）──
 agent/data/
 *.log
@@ -36,3 +46,6 @@ agent/data/
 
 # ── 本地工具/编辑器数据（收件箱、会话缓存等）────
 .dumate/
+
+# 备份文件
+*.bak

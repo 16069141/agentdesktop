@@ -2,7 +2,7 @@
   "name": "spiritcaller-client",
   "version": "0.1.0",
   "private": true,
-  "description": "Spiritcaller颤翎子 - 私有域 AI 助手客户端",
+  "description": "颤翎子AI助手 - Spiritcaller 私有域桌面客户端",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -14,8 +14,11 @@
   },
   "dependencies": {
     "echarts": "^6.1.0",
+    "highlight.js": "^11.12.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "zustand": "^4.5.5"
   },
   "devDependencies": {

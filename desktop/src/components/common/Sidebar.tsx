@@ -118,10 +118,10 @@ const Sidebar: React.FC = () => {
           </div>
           <div className="min-w-0">
             <div className="font-semibold text-sm" style={{ color: 'var(--text)' }}>
-              颤翎子
+              颤翎子AI助手
             </div>
             <div className="text-xs truncate" style={{ color: 'var(--text-faint)' }}>
-              私有域 · 本地模型 · 数据不出内网
+              本地模型 · 数据不出内网
             </div>
           </div>
         </div>

@@ -505,7 +505,7 @@ const ChatView: React.FC = () => {
       </div>
 
       {/* 消息区 */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
         {loadError && (
           <div
             className="max-w-3xl mx-auto mb-3 px-3 py-2 rounded-lg text-sm"
@@ -519,7 +519,7 @@ const ChatView: React.FC = () => {
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="text-6xl mb-4">💬</div>
             <div className="text-xl font-semibold mb-2" style={{ color: 'var(--text)' }}>
-              你好，我是颤翎子，开始对话
+              你好，我是颤翎子AI助手，开始对话
             </div>
             <div className="text-sm mb-6" style={{ color: 'var(--text-dim)' }}>
               选择模型，发送消息开始对话

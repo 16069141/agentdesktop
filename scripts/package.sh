@@ -71,7 +71,7 @@ echo ""
 echo "[配置] electron-builder 配置..."
 cat > electron-builder.yml << 'EOF'
 appId: com.private-ai.client
-productName: 私有域AI助手
+productName: 颤翎子AI助手
 directories:
   build: build
   output: ../release

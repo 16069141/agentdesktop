@@ -78,14 +78,27 @@ class ShellSecurity:
                 continue
         return False
 
+    # URL / 远程地址：不是本机路径，不做根目录校验
+    # - 协议式：https://github.com/a/b.zip、git://、ftp://、file://
+    # - scp 式：git@github.com:foo/bar.git
+    _URL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
+    _SCP_RE = re.compile(r"^[a-zA-Z0-9._\-]+@[a-zA-Z0-9._\-]+:")
+
     @staticmethod
     def _looks_like_path(token: str) -> bool:
         """token 是否像文件路径（需要做根目录校验）。
 
         覆盖：绝对路径、~ 开头、含目录分隔或 .. 的相对路径。
         普通单词（子命令、主机名、URL 等）不做文件语义校验。
+
+        注意：URL 虽含 `/`，但它是远程地址而非本机路径；若不排除，
+        `curl -o ~/Downloads/a.zip https://github.com/x/y.zip` 会把 URL
+        当成本机相对路径，校验结果随 cwd 变化（cwd 在允许根之外时误拦截）。
         """
         if not token or token.startswith("-"):
+            return False
+        # 远程地址（协议式 URL / scp 式）→ 非本机路径，跳过校验
+        if ShellSecurity._URL_RE.match(token) or ShellSecurity._SCP_RE.match(token):
             return False
         if token.startswith(("~", "/", "./", "../")):
             return True
@@ -264,7 +277,21 @@ _security: Optional[ShellSecurity] = None
 
 
 def get_security() -> ShellSecurity:
+    """获取 ShellSecurity 单例（超时等参数从 settings.json 读取）。
+
+    注意：此前直接 `ShellSecurity()` 使用构造默认值（30s），
+    导致 settings 里的 `max_shell_timeout_sec` 形同虚设（改了不生效）。
+    这里延迟导入 settings 读取后注入；函数内 import 避免与 api 层循环导入。
+    配置变更后需重启后端生效（单例仅在首次调用时构造）。
+    """
     global _security
     if _security is None:
-        _security = ShellSecurity()
+        timeout = 30
+        try:
+            from ..api.settings import _load_settings
+
+            timeout = int(_load_settings().get("max_shell_timeout_sec") or 30)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[shell] 读取 max_shell_timeout_sec 失败，回退 30s: {exc}")
+        _security = ShellSecurity(max_timeout_sec=timeout)
     return _security

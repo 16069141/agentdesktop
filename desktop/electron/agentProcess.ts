@@ -27,20 +27,47 @@ export function getAgentToken(): string {
   return randomBytes(32).toString('hex')
 }
 
-/** 解析 Python 解释器：优先显式配置，其次项目 venv（含全部依赖），最后回落 python3 */
+/**
+ * 解析 Python 解释器：
+ *   1) 显式配置 AGENT_PYTHON
+ *   2) 打包态内置 python-build-standalone（runtime/python/<key>/...）—— 跨机器可移植
+ *   3) 同机 venv（agent/.venv/bin/python，遗留兼容）
+ *   4) 系统 python3
+ */
 function resolvePython(): string {
   if (process.env.AGENT_PYTHON) return process.env.AGENT_PYTHON
 
   if (isPackaged) {
-    // 打包后：venv 随 extraResources 打入 Contents/Resources/agent/.venv（真实文件，可执行）
-    const bundled = join(process.resourcesPath, 'agent/.venv/bin/python')
-    if (existsSync(bundled)) return bundled
+    const base = join(process.resourcesPath, 'runtime', 'python')
+    if (existsSync(base)) {
+      // 顺序：先按 process.platform 找对应子目录，找不到则取第一个存在的 key
+      const want = process.platform === 'win32' ? 'win-x64' : `${process.platform}-${process.arch}`
+      const preferKeys = [want, ...(want !== 'macos-arm64' ? ['macos-arm64'] : []), ...(want !== 'macos-x64' ? ['macos-x64'] : []), ...(want !== 'win-x64' ? ['win-x64'] : [])]
+      for (const k of preferKeys) {
+        const exe = process.platform === 'win32'
+          ? join(base, k, 'python.exe')
+          : join(base, k, 'bin', 'python3')
+        if (existsSync(exe)) return exe
+      }
+    }
+    // 兼容旧版内置 venv
+    const legacy = join(process.resourcesPath, 'agent/.venv/bin/python')
+    if (existsSync(legacy)) return legacy
     return 'python3'
   }
 
-  // 项目 venv：dist-electron/../../agent/.venv/bin/python
-  const bundled = join(__dirname, '../../agent/.venv/bin/python')
-  if (existsSync(bundled)) return bundled
+  // 开发态：dist-electron/../../runtime/python/<host-key>/...（可选）
+  const devRt = join(__dirname, '..', '..', 'runtime', 'python')
+  if (existsSync(devRt)) {
+    const want = `${process.platform}-${process.arch === 'arm64' || process.arch === 'aarch64' ? 'arm64' : 'x64'}`
+    const exe = process.platform === 'win32'
+      ? join(devRt, want, 'python.exe')
+      : join(devRt, want, 'bin', 'python3')
+    if (existsSync(exe)) return exe
+  }
+  // 开发态 venv
+  const devPy = join(__dirname, '..', '..', 'agent', '.venv', 'bin', 'python')
+  if (existsSync(devPy)) return devPy
   return 'python3'
 }
 
@@ -53,6 +80,16 @@ function resolveAgentRoot(): string {
 /** 打包态数据目录必须可写：落在 userData（~Library/Application Support/...） */
 function resolveDataDir(): string {
   if (isPackaged) return join(app.getPath('userData'), 'agent-data')
+  return ''
+}
+
+/**
+ * 可写配置目录：打包态 .app/Contents/Resources 对用户只读，
+ * 直接写会 PermissionError，因此配置必须落在 userData。
+ * 首次启动时后端会自动把包内 config/settings.json 复制过来作为初始值。
+ */
+function resolveConfigDir(): string {
+  if (isPackaged) return join(app.getPath('userData'), 'config')
   return ''
 }
 
@@ -88,6 +125,8 @@ export async function spawnAgentProcess(
       PYTHONUNBUFFERED: '1',
       // 打包态：数据（SQLite/附件）写入 userData，避免写入只读的 .app 资源目录
       ...(resolveDataDir() ? { AGENT_DATA_DIR: resolveDataDir() } : {}),
+      // 打包态：用户配置（settings.json）写入 userData，Resources/config 仅作出厂默认值
+      ...(resolveConfigDir() ? { AGENT_CONFIG_DIR: resolveConfigDir() } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

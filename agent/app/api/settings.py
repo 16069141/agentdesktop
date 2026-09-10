@@ -8,7 +8,9 @@
 import json
 import logging
 import os
-from typing import Any, Dict
+import re
+import shutil
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -18,36 +20,114 @@ from ..security import keychain
 router = APIRouter(prefix="/api", tags=["settings"])
 logger = logging.getLogger(__name__)
 
-# 默认配置（可被 PUT 覆盖到 config/settings.json）
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config", "settings.json")
+# ---- 路径解析 ----------------------------------------------------------------
+# 打包态：.../颤翎子AI助手.app/Contents/Resources/{agent,config}
+# 开发态：v2/{agent,config}
+_HERE = os.path.dirname(os.path.abspath(__file__))            # .../agent/app/api
+_AGENT_DIR = os.path.abspath(os.path.join(_HERE, "..", ".."))  # .../agent
+_RESOURCES_DIR = os.path.abspath(os.path.join(_AGENT_DIR, ".."))
+# 包内「出厂默认配置」：只读，随 extraResources 打进 Resources/config
+BUNDLED_CONFIG_PATH = os.path.join(_RESOURCES_DIR, "config", "settings.json")
+
+
+def _writable_config_path() -> str:
+    """可写配置路径：优先 AGENT_CONFIG_DIR（打包态由 Electron 指向 userData）。"""
+    env_dir = os.environ.get("AGENT_CONFIG_DIR", "").strip()
+    base = env_dir if env_dir else os.path.join(_RESOURCES_DIR, "config")
+    return os.path.join(base, "settings.json")
+
+
+def _home_roots() -> List[str]:
+    home = os.path.expanduser("~")
+    return [home, os.path.join(home, "Downloads"), os.path.join(home, "Desktop")]
+
+
+_VAR_RE = re.compile(r"\$\{(\w+)\}|\$(\w+)")
+
+
+def _expand_path(p: str) -> str:
+    """展开配置里的路径模板：${HOME}/x、$HOME/x、~/x。跨机器分发必须，不能写死用户名。"""
+    if not isinstance(p, str):
+        return p
+
+    def _sub(m: "re.Match[str]") -> str:
+        name = m.group(1) or m.group(2) or ""
+        if name == "HOME":
+            return os.path.expanduser("~")
+        if name in ("USER", "USERNAME"):
+            return os.environ.get("USER") or os.environ.get("USERNAME") or name
+        return os.environ.get(name, m.group(0))
+
+    out = _VAR_RE.sub(_sub, p)
+    if out.startswith("~"):
+        out = os.path.expanduser(out)
+    return out
+
+
+# 默认配置（可被 PUT 覆盖到用户配置）
 DEFAULT_SETTINGS = {
-    "shell_whitelist": ["ls", "cat", "pwd", "echo", "head", "tail", "grep", "find", "wc", "sort", "uniq", "diff", "git", "python", "node", "npm", "curl", "wget"],
+    "shell_whitelist": ["ls", "cat", "pwd", "echo", "head", "tail", "grep", "find", "wc", "sort", "uniq", "diff", "git", "python", "python3", "node", "npm", "curl", "wget", "pip", "pip3", "which", "env", "date", "whoami", "mkdir", "cp", "mv", "touch", "open"],
     "dangerous_patterns": ["rm -rf", "mkfs", "dd if=", ":() {", "> /"],
-    "max_shell_timeout_sec": 30,
-    "allowed_root_dirs": [os.path.expanduser("~")],
+    "max_shell_timeout_sec": 10,
+    "allowed_root_dirs": _home_roots(),
+    "allowed_domains": ["github.com", "api.github.com", "raw.githubusercontent.com", "*.github.com"],
     "context_max_turns": 20,
     "context_system_ratio": 0.15,
     "context_history_ratio": 0.40,
     "context_generation_ratio": 0.45,
 }
 
+_bootstrapped = False
+
+
+def _bootstrap_config() -> None:
+    """首次启动：把包内默认配置复制到可写目录。
+
+    打包态 Resources/ 在 /Applications 下对用户只读，直接写会 PermissionError；
+    因此 Electron 会注入 AGENT_CONFIG_DIR=<userData>/config，配置只在那里落盘。
+    """
+    global _bootstrapped
+    if _bootstrapped:
+        return
+    _bootstrapped = True
+    dst = _writable_config_path()
+    if os.path.exists(dst) or not os.path.exists(BUNDLED_CONFIG_PATH):
+        return
+    if os.path.abspath(dst) == os.path.abspath(BUNDLED_CONFIG_PATH):
+        return
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(BUNDLED_CONFIG_PATH, dst)
+        logger.info(f"[settings] 已初始化用户配置: {dst}")
+    except OSError as e:
+        logger.warning(f"[settings] 初始化用户配置失败（将仅用默认配置）: {e}")
+
 
 def _load_settings() -> Dict[str, Any]:
+    _bootstrap_config()
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        with open(_writable_config_path(), "r", encoding="utf-8") as f:
             saved = json.load(f)
         merged = {**DEFAULT_SETTINGS, **saved}
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         merged = DEFAULT_SETTINGS.copy()
     # 确保必选键存在
     for k, v in DEFAULT_SETTINGS.items():
         merged.setdefault(k, v)
+    # 路径模板展开（${HOME} / ~），保证跨机器、跨用户可用
+    roots = merged.get("allowed_root_dirs")
+    if isinstance(roots, list):
+        merged["allowed_root_dirs"] = [_expand_path(p) for p in roots if isinstance(p, str)]
+    # 兜底：若展开后为空（配置被改坏），回落到家目录
+    if not merged.get("allowed_root_dirs"):
+        merged["allowed_root_dirs"] = _home_roots()
     return merged
 
 
 def _save_settings(s: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+    dst = _writable_config_path()
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "w", encoding="utf-8") as f:
         json.dump(s, f, ensure_ascii=False, indent=2)
 
 
@@ -56,6 +136,7 @@ class SettingsUpdate(BaseModel):
     dangerous_patterns: list[str] | None = None
     max_shell_timeout_sec: int | None = None
     allowed_root_dirs: list[str] | None = None
+    allowed_domains: list[str] | None = None
     context_max_turns: int | None = None
     context_system_ratio: float | None = None
     context_history_ratio: float | None = None

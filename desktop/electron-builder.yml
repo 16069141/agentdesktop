@@ -1,6 +1,6 @@
 {
   "appId": "com.private-ai.client",
-  "productName": "私有域AI助手",
+  "productName": "颤翎子AI助手",
   "directories": {
     "buildResources": "build",
     "output": "../release"
@@ -14,16 +14,38 @@
       "from": "build-staging/agent",
       "to": "agent",
       "filter": ["**/*", "!**/data/**"]
+    },
+    {
+      "from": "build-staging/config",
+      "to": "config",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "build-staging/runtime",
+      "to": "runtime",
+      "filter": ["**/*"]
     }
   ],
+  "artifactName": "${productName}-${version}-${arch}.${ext}",
+  "asar": true,
+  "compression": "maximum",
   "win": {
-    "target": ["nsis"],
-    "icon": "build/icon.ico"
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "build/icon.ico",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
   },
   "mac": {
-    "target": [{ "target": "dmg", "arch": ["arm64"] }],
+    "target": [{ "target": "dmg" }],
     "icon": "build/icon.icns",
-    "category": "public.app-category.productivity"
+    "category": "public.app-category.productivity",
+    "darkModeSupport": true,
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "identity": null,
+    "extendInfo": {
+      "NSHumanReadableCopyright": "内部使用，未经许可请勿传播。",
+      "LSMinimumSystemVersion": "11.0"
+    }
   },
   "linux": {
     "target": ["AppImage"],
@@ -32,10 +54,20 @@
   },
   "nsis": {
     "oneClick": false,
+    "perMachine": false,
     "allowToChangeInstallationDirectory": true,
     "installerIcon": "build/icon.ico",
     "uninstallerIcon": "build/icon.ico",
     "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
+    "createStartMenuShortcut": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "dmg": {
+    "title": "${productName} ${version}",
+    "iconSize": 96,
+    "contents": [
+      { "x": 110, "y": 220, "type": "file" },
+      { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+    ]
   }
 }

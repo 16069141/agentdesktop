@@ -107,7 +107,7 @@ function createWindow() {
     minHeight: 700,
     frame: false,
     backgroundColor: '#0A0F1A',
-    title: '颤翎子',
+    title: '颤翎子AI助手',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -171,29 +171,41 @@ ipcMain.handle('save-file', async (_event, payload: { defaultPath: string; conte
 ipcMain.handle('shell-approval', async (_event, command: string) => {
   return { approved: await requestShellApproval(String(command)) }
 })
-// Agent 交付文件：在 Finder 中显示文件 / 打开文件
-ipcMain.handle('reveal-in-folder', async (_event, path: string) => {
-  if (typeof path !== 'string' || !path.startsWith('/')) {
+// Agent 交付文件：在资源管理器 / Finder 中显示文件 / 打开文件
+// 注意：不能用 path.startsWith('/') 判绝对路径 —— Windows 是 C:\...，会被一律拒绝。
+function isSafeFsPath(p: unknown): p is string {
+  if (typeof p !== 'string' || !p) return false
+  if (!path.isAbsolute(p)) return false
+  // 拒绝 UNC 网络路径（\\server\share），避免被诱导访问内网共享
+  if (p.startsWith('\\\\')) return false
+  return true
+}
+
+ipcMain.handle('reveal-in-folder', async (_event, filePath: string) => {
+  if (!isSafeFsPath(filePath)) {
     return { ok: false, error: '非法路径' }
   }
   try {
-    shell.showItemInFolder(path)
+    shell.showItemInFolder(filePath)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
   }
 })
-ipcMain.handle('open-file', async (_event, path: string) => {
-  if (typeof path !== 'string' || !path.startsWith('/')) {
+ipcMain.handle('open-file', async (_event, filePath: string) => {
+  if (!isSafeFsPath(filePath)) {
     return { ok: false, error: '非法路径' }
   }
   try {
-    const err = await shell.openPath(path)
+    const err = await shell.openPath(filePath)
     return err ? { ok: false, error: err } : { ok: true }
   } catch (err) {
     return { ok: false, error: String(err) }
   }
 })
+
+// Windows：把 %LOCALAPPDATA% 等目录暴露给渲染层（用于展示「数据保存在哪」）
+ipcMain.handle('get-user-data-path', () => app.getPath('userData'))
 
 app.whenReady().then(async () => {
   agentToken = getAgentToken()

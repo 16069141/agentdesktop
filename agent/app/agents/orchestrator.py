@@ -254,7 +254,10 @@ class AgentOrchestrator:
         self.cm = context_manager
         self.system_prompt = system_prompt
         self._registry = get_registry()
-        self._max_turns = 10
+        # 轮次上限：原为 10，实测模型陷入循环时 10 轮要跑好几分钟才终止
+        # （每轮 = 一次完整推理 + 工具执行，shell 慢时单轮可达 30s+）。
+        # 降到 6：正常任务 3~4 轮足够，失控时更快兜底终止。
+        self._max_turns = 6
 
         # 初始化工具注册表
         self._tool_registry = init_tools(
@@ -584,7 +587,10 @@ class AgentOrchestrator:
                 _last_tool = primary_tool
                 _streak = 1
 
-            if _streak >= 3:
+            # 阈值 3 → 2：原阈值下模型要连续调 3 次才终止，叠加慢工具（shell 30s）
+            # 单次失控能跑 90s+ 且面板长时间停在 running，观感像卡死。
+            # 正常任务极少连续 2 轮用同一工具（db_query 已豁免），收紧不误伤。
+            if _streak >= 2:
                 logger.warning(
                     f"[agent] 工具 '{primary_tool}' 连续调用 {_streak} 次，疑似循环，注入警告并终止"
                 )
@@ -598,6 +604,53 @@ class AgentOrchestrator:
                 break
 
             logger.info(f"[agent] 第 {turn} 轮：执行了 {len(tool_results)} 个工具，继续对话")
+
+        # ── 循环结束兜底：若最后一条消息不是 assistant（即模型还没给出最终文本，
+        # 可能是刚执行完工具、或被同工具循环检测强制 break），再调用一次模型
+        # （不带 tools）生成最终文本回答，避免用户只看到工具执行过程却没有结论。
+        if state.messages and state.messages[-1].get("role") != "assistant":
+            logger.info("[agent] 循环结束但模型未给出最终文本，补一轮纯文本生成")
+            try:
+                context = self.cm.build_context(
+                    system_prompt=self.system_prompt,
+                    messages=state.messages,
+                )
+                full_messages = [
+                    {"role": "system", "content": context["system"]},
+                    *context["messages"],
+                ]
+                provider = self._registry.get(state.provider_id)
+                stream = provider.chat(
+                    messages=full_messages,
+                    model=state.model_id,
+                    stream=True,
+                )
+                final_content = ""
+                while True:
+                    try:
+                        event = await asyncio.wait_for(
+                            anext(stream), timeout=LLM_EVENT_TIMEOUT_SEC
+                        )
+                    except StopAsyncIteration:
+                        break
+                    etype = event.get("type", "")
+                    if etype == "text":
+                        final_content += event.get("delta", "")
+                        yield {"type": "text", "delta": event.get("delta", "")}
+                    elif etype == "thinking":
+                        yield {"type": "thinking", "delta": event.get("delta", "")}
+                    elif etype == "done":
+                        usage = event.get("usage", {})
+                        state.token_usage["input"] += usage.get("promptTokens", 0)
+                        state.token_usage["output"] += usage.get("completionTokens", 0)
+                        break
+                    elif etype == "error":
+                        yield {"type": "error", "message": event.get("message", "")}
+                        break
+                if final_content:
+                    state.messages.append({"role": "assistant", "content": final_content})
+            except Exception as exc:
+                logger.error(f"[agent] 兜底文本生成失败: {exc}")
 
         # 最终收尾：整个 Agent 循环结束后统一产出 done（含累计用量）
         logger.info(f"[agent] 对话结束，共 {turn} 轮，工具调用 {len(state.tool_results)} 次")

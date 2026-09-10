@@ -63,10 +63,33 @@ cd v2/desktop && npx tsc --noEmit && npx vite build
 cd v2/desktop && npx electron .          # 日志 /tmp/a4_client.log
 
 # 标准重启序列（防打包 App 旧后端抢占 8765）
-pkill -f "desktop/node_modules/electron"; pkill -f "app.main"; pkill -f "私有域AI助手"
+pkill -f "desktop/node_modules/electron"; pkill -f "app.main"; pkill -f "颤翎子AI助手"
 for p in $(lsof -nP -iTCP:8765 -sTCP:LISTEN -t); do kill -9 $p; done
 cd v2/desktop && npx electron .
 ```
+
+## 同步到已安装的 App（/Applications/颤翎子AI助手.app）
+
+**关键：后端 Python 不在 asar 内**，位于 `Resources/agent/`，可直接复制，无需重打包。
+
+- **只改了后端（Python / config）** → 跑同步脚本即可（自动关 App）：
+  ```bash
+  bash v2/scripts/sync_agent_to_app.sh     # 需 dangerouslyDisableSandbox（写 /Applications 被沙箱拦）
+  open -a "颤翎子AI助手"
+  ```
+  同步内容：`web_tools.py`、`settings.py`、`shell_security.py`、`config/settings.json`
+
+- **改了前端（desktop/src）** → 先 `vite build`，再 `bash v2/update_app.sh`（重打包 asar）
+
+- **settings.json 在 App 内的解析路径** = `Resources/config/settings.json`
+  （`settings.py` 的 `CONFIG_PATH` 从 `app/api/` 上溯三级）。App 内若无此文件则用 `DEFAULT_SETTINGS`。
+
+- **验证 App 内实际生效配置**（不依赖 token，`ps` 在沙箱下取不到 AGENT_TOKEN）：
+  ```bash
+  cd "/Applications/颤翎子AI助手.app/Contents/Resources/agent" && \
+  .venv/bin/python -c "import sys; sys.path.insert(0,'.'); \
+  from app.api.settings import _load_settings; print(_load_settings())"
+  ```
 
 ## 常用验证
 

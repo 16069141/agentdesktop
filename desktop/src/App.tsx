@@ -111,7 +111,7 @@ export default function App() {
             <img src={parrotIcon} alt="颤翎子" className="w-16 h-16 rounded-2xl object-cover" style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }} />
           </div>
           <div className="text-2xl font-semibold mb-2" style={{ color: 'var(--accent)' }}>
-            颤翎子
+            颤翎子AI助手
           </div>
           {phase === 'booting' ? (
             <div className="text-sm" style={{ color: 'var(--text-dim)' }}>

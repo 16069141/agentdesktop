@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PrivateAI Agent",
     version="0.1.0",
-    description="私有域 AI 桌面客户端的本地后端（仅监听 127.0.0.1）",
+    description="颤翎子AI助手（Spiritcaller）桌面客户端的本地后端（仅监听 127.0.0.1）",
     lifespan=lifespan,
 )
 

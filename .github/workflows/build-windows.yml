@@ -1,0 +1,80 @@
+name: Build Windows Installer
+
+# 在 Windows runner 上构建 .exe 安装包。
+# 为什么需要 CI：macOS 上构建 Windows 目标需要 Wine（rcedit 修改 exe 资源），
+# 而 Homebrew 的 wine cask 已被 Gatekeeper 禁用，winehq.org 又在公司网络被拦。
+# windows-latest runner 原生构建，无这些限制。
+#
+# 触发方式：
+#   - 推送 tag（如 v0.1.0）
+#   - Actions 页面手动触发（workflow_dispatch），可指定是否上传 Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 配置 Python（供 fetch 脚本调用 pip 做交叉安装 / 本机校验）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安装前端依赖
+        working-directory: desktop
+        run: npm ci
+
+      - name: 构建前端 + Electron 主进程
+        working-directory: desktop
+        run: npm run build
+
+      - name: 获取可移植 Python 运行时（win-x64）
+        shell: bash
+        run: bash scripts/fetch-python-runtime.sh win-x64
+
+      - name: 校验运行时可用性
+        shell: bash
+        run: |
+          ls runtime/python/win-x64/python.exe
+          ls runtime/python/win-x64/Lib/site-packages | head -5
+
+      - name: 打包 Windows 安装包
+        working-directory: desktop
+        shell: bash
+        run: |
+          bash scripts/stage-release.sh win-x64
+          npx electron-builder --win --x64
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: 颤翎子AI助手-windows-x64
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 发布到 GitHub Release（仅 tag 触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

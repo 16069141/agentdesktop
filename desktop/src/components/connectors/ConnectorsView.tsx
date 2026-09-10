@@ -76,11 +76,13 @@ const ConnectorsView: React.FC = () => {
   // 数据库只读
   const [dbConns, setDbConns] = useState<DbConnItem[]>([])
   const [showDbForm, setShowDbForm] = useState(false)
-  const [dbForm, setDbForm] = useState({
+  const [editingDbId, setEditingDbId] = useState<string | null>(null)
+  const DEFAULT_DB_FORM = {
     id: '', name: '', db_type: 'sqlite', dsn: '',
     pg_host: '127.0.0.1', pg_port: '5432', pg_user: '', pg_password: '', pg_dbname: '',
     enabled: true, max_rows: 100, timeout_sec: 10,
-  })
+  }
+  const [dbForm, setDbForm] = useState(DEFAULT_DB_FORM)
   const [dbTest, setDbTest] = useState<Record<string, { ok: boolean; error?: string }>>({})
   const [dbQuery, setDbQuery] = useState<Record<string, { open: boolean; sql: string; res: any; loading: boolean }>>({})
 
@@ -208,12 +210,53 @@ const ConnectorsView: React.FC = () => {
         }
         form.dsn = `postgresql://${encodeURIComponent(form.pg_user)}:${encodeURIComponent(form.pg_password)}@${form.pg_host.trim()}:${Number(form.pg_port) || 5432}/${encodeURIComponent(form.pg_dbname.trim())}`
       }
-      await api.dbConnectors.create(form)
+      if (editingDbId) {
+        // 编辑模式：仅更新可改字段，id 不可变
+        await api.dbConnectors.update(editingDbId, {
+          name: form.name,
+          db_type: form.db_type,
+          dsn: form.dsn,
+          enabled: form.enabled,
+          max_rows: form.max_rows,
+          timeout_sec: form.timeout_sec,
+        })
+      } else {
+        await api.dbConnectors.create(form)
+      }
       setShowDbForm(false)
+      setEditingDbId(null)
       loadAll()
     } catch (e) {
       setError(`保存失败：${e instanceof Error ? e.message : String(e)}`)
     }
+  }
+  const editDb = (d: DbConnItem) => {
+    setEditingDbId(d.id)
+    const prefill: any = {
+      ...DEFAULT_DB_FORM,
+      id: d.id,
+      name: d.name,
+      db_type: d.dbType,
+      dsn: d.dsn,
+      enabled: d.enabled,
+      max_rows: d.maxRows,
+      timeout_sec: d.timeoutSec,
+    }
+    // 从 DSN 解析 PostgreSQL 各字段（密码回填，便于直接保存）
+    if (d.dbType === 'postgres') {
+      try {
+        const u = new URL(d.dsn)
+        prefill.pg_host = u.hostname
+        prefill.pg_port = u.port || '5432'
+        prefill.pg_user = decodeURIComponent(u.username)
+        prefill.pg_password = decodeURIComponent(u.password)
+        prefill.pg_dbname = decodeURIComponent(u.pathname.slice(1))
+      } catch {
+        // DSN 解析失败则留空，由用户手动填
+      }
+    }
+    setDbForm(prefill)
+    setShowDbForm(true)
   }
   const removeDb = async (d: DbConnItem) => {
     if (!window.confirm(`确认删除只读连接「${d.name}」？`)) return
@@ -496,7 +539,7 @@ const ConnectorsView: React.FC = () => {
             <button
               className="px-3 py-1.5 rounded-lg text-sm"
               style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-              onClick={() => setShowDbForm(true)}
+              onClick={() => { setEditingDbId(null); setDbForm(DEFAULT_DB_FORM); setShowDbForm(true) }}
             >
               + 新增只读连接
             </button>
@@ -505,7 +548,7 @@ const ConnectorsView: React.FC = () => {
           {showDbForm && (
             <div className="p-4 rounded-xl mb-4" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
               <div className="font-medium text-sm mb-3 flex items-center gap-2">
-                新增数据库只读连接
+                {editingDbId ? '编辑数据库只读连接' : '新增数据库只读连接'}
                 <select
                   className="text-xs rounded-lg px-2 py-1 outline-none"
                   style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
@@ -519,8 +562,8 @@ const ConnectorsView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
-                  style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
-                  placeholder="ID（如 db-prod-ro）" value={dbForm.id}
+                  style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)', opacity: editingDbId ? 0.5 : 1 }}
+                  placeholder="ID（如 db-prod-ro）" value={dbForm.id} disabled={!!editingDbId}
                   onChange={(e) => setDbForm({ ...dbForm, id: e.target.value })}
                 />
                 <input
@@ -592,7 +635,7 @@ const ConnectorsView: React.FC = () => {
                 >
                   保存
                 </button>
-                <button className="px-3 py-1.5 rounded-lg text-sm" style={{ color: 'var(--text-dim)' }} onClick={() => setShowDbForm(false)}>
+                <button className="px-3 py-1.5 rounded-lg text-sm" style={{ color: 'var(--text-dim)' }} onClick={() => { setShowDbForm(false); setEditingDbId(null) }}>
                   取消
                 </button>
               </div>
@@ -624,6 +667,7 @@ const ConnectorsView: React.FC = () => {
                       </span>
                     )}
                     <span className="ml-auto flex gap-2 text-xs">
+                      <button style={{ color: 'var(--accent)' }} onClick={() => editDb(d)}>编辑</button>
                       <button style={{ color: 'var(--accent)' }} onClick={() => testDb(d)}>测试连接</button>
                       <button style={{ color: 'var(--accent)' }} onClick={() => queryDb(d)}>查询</button>
                       <button style={{ color: 'var(--danger)' }} onClick={() => removeDb(d)}>删除</button>

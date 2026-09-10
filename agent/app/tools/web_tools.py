@@ -110,15 +110,52 @@ def _ip_is_public(ip: str) -> bool:
     return True
 
 
+def _load_allowed_domains() -> list[str]:
+    """从 settings.json 加载允许访问的域名列表。"""
+    try:
+        from ..api.settings import _load_settings
+        domains = _load_settings().get("allowed_domains") or []
+        return [d.lower().strip() for d in domains if d]
+    except Exception:
+        return []
+
+
+def _domain_matches_pattern(domain: str, pattern: str) -> bool:
+    """检查域名是否匹配白名单模式（支持 * 通配符）。"""
+    if not domain or not pattern:
+        return False
+    domain = domain.lower()
+    if pattern.startswith("*."):
+        # *.example.com 匹配 example.com 及其所有子域名
+        suffix = pattern[2:]
+        return domain == suffix or domain.endswith(f".{suffix}")
+    return domain == pattern
+
+
+def _is_domain_allowed(host: str) -> bool:
+    """检查域名是否在白名单中。"""
+    allowed = _load_allowed_domains()
+    if not allowed:
+        # 未配置白名单时，仅做内网/保留地址校验（原有行为）
+        return True
+    for pattern in allowed:
+        if _domain_matches_pattern(host, pattern):
+            return True
+    return False
+
+
 def _validate_url(url: str) -> str:
-    """运行时 URL 校验：仅 http/https，SSRF 防护（字面 IP 与 DNS 解析后都校验）。"""
+    """运行时 URL 校验：仅 http/https，SSRF 防护，域名白名单校验。"""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError("仅允许 http/https 协议")
     host = parsed.hostname or ""
     if not host:
         raise ValueError("URL 缺少主机名")
-    # 1) 主机名字面 IP 校验
+    # 1) 域名白名单校验（优先于 IP 校验）
+    if not _is_domain_allowed(host):
+        raise ValueError(f"域名 {host} 不在安全白名单中，已拦截")
+    # 2) 主机名字面 IP 校验
     literal_ip: Optional[str] = None
     try:
         literal_ip = ipaddress.ip_address(host).compressed
@@ -126,7 +163,7 @@ def _validate_url(url: str) -> str:
         pass
     if literal_ip and not _ip_is_public(literal_ip):
         raise ValueError(f"目标地址 {host} 属于内网/保留地址，已拦截")
-    # 2) DNS 解析后逐 IP 校验（防 DNS 重绑定到内网）
+    # 3) DNS 解析后逐 IP 校验（防 DNS 重绑定到内网）
     if not literal_ip:
         try:
             infos = socket.getaddrinfo(host, None)

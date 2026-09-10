@@ -14,10 +14,22 @@
     "diff",
     "git",
     "python",
+    "python3",
     "node",
     "npm",
     "curl",
-    "wget"
+    "wget",
+    "pip",
+    "pip3",
+    "which",
+    "env",
+    "date",
+    "whoami",
+    "mkdir",
+    "cp",
+    "mv",
+    "touch",
+    "open"
   ],
   "dangerous_patterns": [
     "rm -rf",
@@ -26,9 +38,23 @@
     ":() {",
     "> /"
   ],
-  "max_shell_timeout_sec": 30,
+  "max_shell_timeout_sec": 10,
   "allowed_root_dirs": [
-    "/Users/caojian"
+    "${HOME}",
+    "${HOME}/Downloads",
+    "${HOME}/Desktop"
+  ],
+  "allowed_domains": [
+    "github.com",
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "*.github.com",
+    "duckduckgo.com",
+    "bing.com",
+    "google.com",
+    "*.google.com",
+    "microsoft.com",
+    "*.microsoft.com"
   ],
   "context_max_turns": 20,
   "context_system_ratio": 0.15,

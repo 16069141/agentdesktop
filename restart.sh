@@ -84,7 +84,7 @@ echo "========================================"
 echo "[*] 停止现有进程..."
 pkill -f "desktop/node_modules/electron" 2>/dev/null || true
 pkill -f "app.main" 2>/dev/null || true
-pkill -f "私有域AI助手" 2>/dev/null || true
+pkill -f "颤翎子AI助手" 2>/dev/null || true
 
 for p in $(lsof -nP -iTCP:8765 -sTCP:LISTEN -t 2>/dev/null); do
   echo "[*] 终止端口 8765 进程: $p"
