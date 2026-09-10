@@ -1,0 +1,32 @@
+# 运行时依赖（跨平台最小集，用于交叉安装 / Windows 构建）
+# 说明：requirements-dist.txt 是开发机 pip freeze 出的锁定版（含全部间接依赖），
+#       适合同平台复现；本文件只列直接依赖 + 下限，适合跨平台解析。
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+aiosqlite>=0.20.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+keyring>=24.0.0
+
+# 模型 / 联网
+openai>=1.40.0,<2.0.0
+httpx>=0.27.0
+trafilatura>=1.12.0
+lxml>=5.0.0
+
+# 文档解析与生成
+python-docx>=1.1.0
+openpyxl>=3.1.0
+pypdf>=4.0.0
+python-pptx>=0.6.21
+mammoth>=1.8.0
+reportlab>=4.0.0
+xlsxwriter>=3.2.0
+jinja2>=3.1.0
+
+# 数据库工具
+psycopg[binary]>=3.2.0
+PyPika>=0.48.9
+PyYAML>=6.0

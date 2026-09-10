@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 无响应诊断 · 读 docx 生成 HTML 场景</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: #e2e8f0;
+    padding: 28px;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 6px; letter-spacing: 0.5px; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
+
+  /* 因果链 */
+  .chain { display: flex; align-items: stretch; gap: 0; margin-bottom: 28px; flex-wrap: wrap; }
+  .node {
+    flex: 1; min-width: 150px; padding: 14px 12px; border-radius: 14px;
+    background: linear-gradient(145deg, #334155, #1e293b);
+    box-shadow: inset -2px -2px 6px rgba(0,0,0,0.4), inset 2px 2px 6px rgba(148,163,184,0.08), 0 4px 14px rgba(0,0,0,0.35);
+    text-align: center; position: relative;
+  }
+  .node .step { font-size: 10px; color: #64748b; letter-spacing: 1px; margin-bottom: 6px; }
+  .node .title { font-size: 13px; font-weight: 700; }
+  .node .detail { font-size: 11px; color: #94a3b8; margin-top: 4px; line-height: 1.5; }
+  .node.ok { border: 2px solid #22c55e55; }
+  .node.bad { border: 2px solid #ef4444aa; background: linear-gradient(145deg, #3f1d1d, #1e293b); }
+  .node.bad .title { color: #f87171; }
+  .arrow { display: flex; align-items: center; padding: 0 6px; color: #64748b; font-size: 16px; }
+  .arrow.bad { color: #ef4444; }
+
+  /* 缺口矩阵 */
+  h2 { font-size: 17px; margin: 26px 0 14px; display: flex; align-items: center; gap: 8px; }
+  h2 .tag { font-size: 11px; background: #ef4444; color: #fff; padding: 2px 8px; border-radius: 8px; font-weight: 700; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 14px; }
+  .card {
+    background: linear-gradient(145deg, #334155, #1e293b);
+    border-radius: 16px; padding: 16px;
+    box-shadow: inset -2px -2px 6px rgba(0,0,0,0.4), inset 2px 2px 6px rgba(148,163,184,0.08), 0 4px 14px rgba(0,0,0,0.35);
+    border-left: 4px solid #ef4444;
+  }
+  .card.green { border-left-color: #22c55e; }
+  .card .gap-title { font-size: 14px; font-weight: 700; color: #f87171; margin-bottom: 8px; }
+  .card.green .gap-title { color: #4ade80; }
+  .card .row { font-size: 12px; line-height: 1.65; margin-bottom: 6px; }
+  .card .row b { color: #fbbf24; }
+  .card.green .row b { color: #86efac; }
+  .card .row .lbl { color: #94a3b8; font-weight: 600; }
+
+  /* 对照条 */
+  .verdict {
+    margin-top: 26px; border-radius: 18px; padding: 18px 20px;
+    background: linear-gradient(145deg, #14532d, #052e16);
+    border: 1px solid #22c55e66;
+    box-shadow: inset -2px -2px 6px rgba(0,0,0,0.4), inset 2px 2px 6px rgba(74,222,128,0.1), 0 4px 18px rgba(0,0,0,0.4);
+  }
+  .verdict h3 { color: #4ade80; font-size: 15px; margin-bottom: 10px; }
+  .verdict p { font-size: 13px; line-height: 1.8; color: #bbf7d0; }
+  .verdict code { background: #052e16; padding: 2px 8px; border-radius: 6px; color: #86efac; font-size: 12px; }
+
+  .footer { margin-top: 24px; color: #64748b; font-size: 11px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 Agent 无响应诊断</h1>
+  <div class="sub">场景：用户上传 Word 文档 → 要求「梳理 + 提炼总结 + 生成 HTML」→ 模型调用 filesystem / shell 后无任何回答</div>
+
+  <!-- 因果链 -->
+  <div class="chain">
+    <div class="node ok">
+      <div class="step">STEP 1</div>
+      <div class="title">用户请求</div>
+      <div class="detail">上传 .docx（5,627 字符）<br>要求提炼并生成 HTML</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <div class="step">STEP 2</div>
+      <div class="title">模型发起工具调用</div>
+      <div class="detail">filesystem read<br>shell 检查 mammoth</div>
+    </div>
+    <div class="arrow bad">→</div>
+    <div class="node bad">
+      <div class="step">STEP 3</div>
+      <div class="title">工具执行断裂</div>
+      <div class="detail">文件读不到 / 环境无库<br>执行失败</div>
+    </div>
+    <div class="arrow bad">→</div>
+    <div class="node bad">
+      <div class="step">STEP 4</div>
+      <div class="title">结果未回填</div>
+      <div class="detail">模型等不到工具结果<br>循环无出口</div>
+    </div>
+    <div class="arrow bad">→</div>
+    <div class="node bad">
+      <div class="step">RESULT</div>
+      <div class="title">模型无响应 ❌</div>
+      <div class="detail">无最终总结 / 无 HTML</div>
+    </div>
+  </div>
+
+  <!-- 缺口矩阵 -->
+  <h2>缺的东西（技能 / 方法）<span class="tag">6 项缺口</span></h2>
+  <div class="grid">
+    <div class="card">
+      <div class="gap-title">① 文档解析技能缺失</div>
+      <div class="row"><span class="lbl">表现：</span>模型现场用 shell 试探 mammoth / python-docx</div>
+      <div class="row"><span class="lbl">后果：</span>环境无库 → 命令报错 → 卡死</div>
+      <div class="row"><b>正确做法：</b>应用内置 docx→HTML 转换器（mammoth）或 docx→文本提取（python-docx），上传时同步解析，模型拿到的是纯文本，无需自行试错</div>
+    </div>
+    <div class="card">
+      <div class="gap-title">② 工具执行引擎缺失</div>
+      <div class="row"><span class="lbl">表现：</span>只看到「调用工具」记录，没有执行结果</div>
+      <div class="row"><span class="lbl">后果：</span>模型发出 tool_call 后无人执行、结果不回流</div>
+      <div class="row"><b>正确做法：</b>工具注册表 + 真实执行器 + 结果回填（tool_result 必须发回模型，且带错误信息而非静默失败）</div>
+    </div>
+    <div class="card">
+      <div class="gap-title">③ 文件访问授权缺失</div>
+      <div class="row"><span class="lbl">表现：</span>读 <code>C:\Users\ASUS-BOOK\AppData\Local\Temp\TencentFiles\...</code> 临时目录</div>
+      <div class="row"><span class="lbl">后果：</span>沙箱外/权限不足 → 读取失败</div>
+      <div class="row"><b>正确做法：</b>明确可读目录白名单；文件先经应用层读取再喂给模型，不把文件系统裸交给模型</div>
+    </div>
+    <div class="card">
+      <div class="gap-title">④ 循环控制缺失</div>
+      <div class="row"><span class="lbl">表现：</span>工具调用没有步数 / 超时上限</div>
+      <div class="row"><span class="lbl">后果：</span>失败→重试→再失败，死循环或挂起，永不输出</div>
+      <div class="row"><b>正确做法：</b>max_steps（如 10 步）、单工具超时（如 30s）、失败 N 次强制转文本回传并结束</div>
+    </div>
+    <div class="card">
+      <div class="gap-title">⑤ Agent 系统提示缺失</div>
+      <div class="row"><span class="lbl">表现：</span>模型不知道处理 docx 的正确流程，乱试</div>
+      <div class="row"><span class="lbl">后果：</span>工具选择错误 → 无效调用链</div>
+      <div class="row"><b>正确做法：</b>system prompt 定义工作流：「读取内容 → 结构化提炼 → 输出 HTML」；明确哪些工具可用、最终必须给用户可见答案</div>
+    </div>
+    <div class="card">
+      <div class="gap-title">⑥ 模型 function calling 能力不匹配</div>
+      <div class="row"><span class="lbl">表现：</span>agnes 等 OpenAI 兼容接口对 tools 支持有限</div>
+      <div class="row"><span class="lbl">后果：</span>tool_call 被忽略或格式不兼容 → 无响应</div>
+      <div class="row"><b>正确做法：</b>探测模型是否支持 tools；不支持时回退「纯文本对话 + 应用侧预解析」，不让模型承担工具职责</div>
+    </div>
+  </div>
+
+  <!-- 对照 -->
+  <div class="verdict">
+    <h3>✅ 颤翎子客户端如何规避这个问题（已内置）</h3>
+    <p>
+      1. 上传 / 拖拽 / 粘贴时，<b>后端立即解析文档</b>（<code>files/upload</code>：docx / xlsx / pptx / pdf / txt / md → 提取文本，卡片显示 5,627 字符即解析结果）；<br>
+      2. 发给模型的只是<b>纯文本</b>，模型<b>不需要调用任何工具</b>即可完成「梳理 → 提炼 → 生成 HTML」；<br>
+      3. 无工具依赖 → 无文件权限问题 → 无循环控制问题 → <b>模型必然给出回答</b>，不会出现截图中的无响应。<br>
+      <b>结论：</b>把「文档处理」从模型侧（工具调用）上移到应用侧（预解析），是这类场景最稳的架构。
+    </p>
+  </div>
+
+  <div class="footer">Agent-V4 颤翎子 · 无响应诊断报告 · 2026-09</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,211 @@
+"""Provider 层（统一，仅一份）。
+
+规格书 §9.1：
+- BaseProvider 抽象类：chat（异步流式）+ list_models
+- OpenAICompatibleProvider：Ollama / vLLM / 私有 API / 互联网商业大模型共用
+- 健康检查与健康降级逻辑在 routing.py 中实现
+"""
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import AsyncIterator, Optional
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ModelInfo:
+    id: str
+    name: str
+    provider: str  # "ollama" | "openai" | "private_api" | "internet"
+    kind: str  # "chat" | "embedding"
+    status: str  # "healthy" | "unhealthy"
+    last_health_check: Optional[str] = None  # ISO 8601
+
+
+class BaseProvider(ABC):
+    @abstractmethod
+    async def chat(
+        self,
+        messages: list[dict],
+        model: str,
+        **kwargs,
+    ) -> AsyncIterator[dict]:
+        ...
+
+    @abstractmethod
+    async def list_models(self) -> list[ModelInfo]:
+        ...
+
+    async def health_check(self, model: str | None = None) -> bool:
+        return True
+
+
+class OpenAICompatibleProvider(BaseProvider):
+    def __init__(
+        self,
+        provider_id: str,
+        name: str,
+        base_url: str,
+        api_key: str = "",
+        model_map: Optional[dict[str, str]] = None,
+    ):
+        self.provider_id = provider_id
+        self.name = name
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key or "sk-placeholder"
+        self.model_map = model_map or {}
+        self._models: list[ModelInfo] = []
+        self._client = None
+
+    async def _get_client(self):
+        if self._client is None:
+            try:
+                from openai import AsyncOpenAI
+                # 禁用环境变量代理，避免企业代理干扰本地模型服务
+                import httpx
+                http_client = httpx.AsyncClient(trust_env=False)
+                self._client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, http_client=http_client)
+            except ImportError:
+                logger.warning("[provider] openai 包未安装，ChatCompletion 不可用。安装: pip install openai")
+                self._client = _MockClient(self.base_url, self.api_key)
+        return self._client
+
+    async def chat(self, messages, model, **kwargs):
+        client = await self._get_client()
+        try:
+            # 携带 usage 统计（OpenAI 兼容标准）；网关不支持时回退普通流式
+            try:
+                stream = await client.chat.completions.create(model=model, messages=messages, stream=True, stream_options={"include_usage": True}, **kwargs)
+            except Exception as exc:
+                logger.warning(f"[provider] 网关拒绝 stream_options，回退普通流式: {exc}")
+                stream = await client.chat.completions.create(model=model, messages=messages, stream=True, **kwargs)
+            _pending = {}
+            _finish_seen = ""
+            _done = False
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                finish_reason = chunk.choices[0].finish_reason if chunk.choices else None
+                if delta is None and not finish_reason and not chunk.usage:
+                    continue
+                if delta is not None:
+                    if delta.content:
+                        yield {"type": "text", "delta": delta.content}
+                    if delta.tool_calls:
+                        # 流式工具调用增量聚合（与 base.py 保持一致）：按 index 累积
+                        for tc in delta.tool_calls:
+                            idx = getattr(tc, "index", None)
+                            if idx is None:
+                                idx = 0
+                            entry = _pending.setdefault(idx, {"id": "", "function": {"name": "", "arguments": ""}})
+                            if tc.id:
+                                entry["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    entry["function"]["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    entry["function"]["arguments"] += tc.function.arguments
+                if finish_reason and not _finish_seen:
+                    _finish_seen = finish_reason
+                    if _pending and finish_reason == "tool_calls":
+                        calls = [{
+                            "id": _pending[i]["id"], "type": "function",
+                            "function": {"name": _pending[i]["function"]["name"],
+                                         "arguments": _pending[i]["function"]["arguments"] or "{}"},
+                        } for i in sorted(_pending) if _pending[i]["function"]["name"]]
+                        if calls:
+                            yield {"type": "tool_calls", "calls": calls}
+                        _pending = {}
+                if chunk.usage is not None and not _done:
+                    _done = True
+                    yield {"type": "done", "finish_reason": _finish_seen or finish_reason or "stop",
+                           "usage": {"promptTokens": chunk.usage.prompt_tokens or 0,
+                                     "completionTokens": chunk.usage.completion_tokens or 0}}
+                    return
+            if not _done:
+                if _pending:
+                    calls = [{
+                        "id": _pending[i]["id"], "type": "function",
+                        "function": {"name": _pending[i]["function"]["name"],
+                                     "arguments": _pending[i]["function"]["arguments"] or "{}"},
+                    } for i in sorted(_pending) if _pending[i]["function"]["name"]]
+                    if calls:
+                        yield {"type": "tool_calls", "calls": calls}
+                yield {"type": "done", "finish_reason": _finish_seen or "stop", "usage": {}}
+        except Exception as exc:
+            logger.error(f"[provider] chat 异常: {exc}")
+            yield {"type": "error", "message": str(exc)}
+
+    async def list_models(self):
+        if self._models:
+            return self._models
+        client = await self._get_client()
+        try:
+            resp = await client.models.list()
+            for m in resp.data:
+                kind = "embedding" if "embed" in m.id.lower() else "chat"
+                self._models.append(ModelInfo(id=m.id, name=m.id, provider=self.provider_id, kind=kind, status="healthy"))
+        except Exception as exc:
+            logger.warning(f"[provider] 获取模型列表失败 ({self.provider_id}): {exc}")
+            for alias, model_id in self.model_map.items():
+                kind = "embedding" if "embed" in model_id.lower() else "chat"
+                self._models.append(ModelInfo(id=model_id, name=alias, provider=self.provider_id, kind=kind, status="healthy" if self.provider_id == "ollama" else "unknown"))
+        return self._models
+
+    async def health_check(self, model=None):
+        try:
+            client = await self._get_client()
+            await client.models.list()
+            return True
+        except Exception:
+            return False
+
+
+class _MockClient:
+    def __init__(self, base_url, api_key):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.chat = _MockChat(self)
+
+
+class _MockChat:
+    def __init__(self, client):
+        self._client = client
+
+    class completions:
+        @staticmethod
+        async def create(**kwargs):
+            return _MockStream()
+
+
+class _MockStream:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+def build_providers(settings=None):
+    """统一委托 base.py 实现：按 llm_servers 连接表构建 Provider 列表。"""
+    from .base import build_providers as _base_build
+    return _base_build(settings)
+
+
+# 从 routing.py 导入路由相关符号
+from .routing import (  # noqa: E402
+    ProviderRegistry,
+    classify_task,
+    get_registry,
+    model_supports_tools,
+    resolve_model,
+)
+
+# 运行时能力回写接口：Agent 编排器遇到 "does not support tools" 时，
+# 用它撤销该模型的工具能力标记，避免同一错误反复触发。
+from .routing import _mark_model_tool_support  # noqa: E402
+
+# Provider 工厂：base.py 为权威实现，此处再导出供健康巡检 / 测试复用
+from .base import build_providers, create_provider  # noqa: E402

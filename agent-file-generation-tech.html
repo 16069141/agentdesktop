@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 文档转换 · 技术原理拆解</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: #e2e8f0;
+    padding: 28px;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1 { font-size: 23px; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 26px; }
+  h2 { font-size: 16px; margin: 26px 0 14px; display: flex; align-items: center; gap: 8px; }
+  h2 .no { background: var(--accent, #3b82f6); color: #fff; width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+
+  /* 主链路 */
+  .chain { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+  .node {
+    flex: 1; min-width: 128px; padding: 14px 10px; border-radius: 14px; text-align: center;
+    background: linear-gradient(145deg, #334155, #1e293b);
+    box-shadow: inset -2px -2px 6px rgba(0,0,0,0.4), inset 2px 2px 6px rgba(148,163,184,0.08), 0 4px 14px rgba(0,0,0,0.35);
+  }
+  .node .who { font-size: 10px; color: #64748b; letter-spacing: 1px; margin-bottom: 5px; }
+  .node .title { font-size: 12.5px; font-weight: 700; line-height: 1.4; }
+  .node .tech { font-size: 10.5px; color: #94a3b8; margin-top: 5px; line-height: 1.45; }
+  .node.hl { border: 1.5px solid #3b82f688; }
+  .arrow { display: flex; align-items: center; padding: 0 4px; color: #64748b; font-size: 14px; }
+
+  /* 卡片区 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .card {
+    background: linear-gradient(145deg, #334155, #1e293b);
+    border-radius: 16px; padding: 16px;
+    box-shadow: inset -2px -2px 6px rgba(0,0,0,0.4), inset 2px 2px 6px rgba(148,163,184,0.08), 0 4px 14px rgba(0,0,0,0.35);
+  }
+  .card .t { font-size: 13.5px; font-weight: 700; color: #60a5fa; margin-bottom: 8px; }
+  .card p { font-size: 12px; line-height: 1.75; color: #cbd5e1; }
+  .card code { background: #0f172a; padding: 1.5px 6px; border-radius: 5px; font-size: 11px; color: #93c5fd; }
+  .card .tag { display: inline-block; font-size: 10px; background: #3b82f622; color: #93c5fd; border: 1px solid #3b82f644; padding: 1px 8px; border-radius: 8px; margin-right: 5px; }
+
+  /* 分工对比 */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .split .box { border-radius: 16px; padding: 16px; }
+  .split .model { background: linear-gradient(145deg, #312e81, #1e1b4b); border: 1px solid #6366f155; }
+  .split .tool { background: linear-gradient(145deg, #14532d, #052e16); border: 1px solid #22c55e55; }
+  .split h3 { font-size: 13.5px; margin-bottom: 8px; }
+  .split .model h3 { color: #a5b4fc; }
+  .split .tool h3 { color: #4ade80; }
+  .split ul { list-style: none; }
+  .split li { font-size: 12px; line-height: 1.8; color: #cbd5e1; padding-left: 16px; position: relative; }
+  .split .model li::before { content: '🧠'; position: absolute; left: -2px; top: 0; }
+  .split .tool li::before { content: '⚙️'; position: absolute; left: -2px; top: 0; }
+
+  .footer { margin-top: 26px; color: #64748b; font-size: 11px; text-align: center; }
+  .note { margin-top: 20px; padding: 14px 16px; border-radius: 14px; background: #1e1b4b33; border: 1px solid #6366f155; font-size: 12.5px; line-height: 1.8; color: #c7d2fe; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚙️ Agent 文档转换：HTML / PPT 的技术实现原理</h1>
+  <div class="sub">以「上传 Word → 转成漂亮的 HTML / PPT」为例，拆解一次完整调用背后的 7 个环节</div>
+
+  <!-- 主链路 -->
+  <div class="chain">
+    <div class="node"><div class="who">你</div><div class="title">上传文档<br>发出指令</div><div class="tech">"转成HTML / 做份PPT"</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="who">模型 · agnes</div><div class="title">理解意图<br>组织内容</div><div class="tech">提炼要点、编排大纲</div></div>
+    <div class="arrow">→</div>
+    <div class="node hl"><div class="who">模型</div><div class="title">发起工具调用</div><div class="tech">tool_call: doc_to_html / generate_ppt</div></div>
+    <div class="arrow">→</div>
+    <div class="node hl"><div class="who">Agent 引擎</div><div class="title">执行工具</div><div class="tech">mammoth / python-pptx 真实渲染</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="who">Agent 引擎</div><div class="title">结果回填</div><div class="tech">tool_result + 文件路径</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="who">后端</div><div class="title">文件落盘</div><div class="tech">uploads 目录 + saved_files 事件</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="who">前端</div><div class="title">交付卡片</div><div class="tech">📄 打开文件 / 浏览文件夹</div></div>
+  </div>
+
+  <h2><span class="no">1</span>核心：模型「说内容」，工具「做文件」</h2>
+  <div class="split">
+    <div class="box model">
+      <h3>🧠 模型负责（agnes-2.5-flash）</h3>
+      <ul>
+        <li>理解文档内容，提炼重点</li>
+        <li>把内容组织成 Markdown 大纲（# 分页 / - 要点）</li>
+        <li>决定调用哪个工具、传什么参数</li>
+        <li>最终用自然语言汇报结果</li>
+      </ul>
+    </div>
+    <div class="box tool">
+      <h3>⚙️ 工具负责（本地引擎）</h3>
+      <ul>
+        <li>doc_to_html → mammoth 引擎转换 Word</li>
+        <li>generate_ppt → python-pptx 引擎生成幻灯片</li>
+        <li>真正写出 .html / .pptx 二进制文件</li>
+        <li>返回文件路径给前端交付</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2><span class="no">2</span>HTML 转换原理（doc_to_html → mammoth）</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="t">📄 Word 内部是什么？</div>
+      <p><code>.docx</code> 本质是一个 ZIP 压缩包，里面是 <code>word/document.xml</code> —— 一种叫 <b>WordprocessingML</b> 的 XML 标记语言。标题、表格、列表都以标签形式存在。</p>
+    </div>
+    <div class="card">
+      <div class="t">🔁 mammoth 做什么？</div>
+      <p>mammoth 专门做<b>映射转换</b>：把 WordprocessingML 的每个元素翻译成对应的 HTML 标签——<code>w:p</code>→<code>&lt;p&gt;</code>、<code>w:tbl</code>→<code>&lt;table&gt;</code>、<code>w:hyperlink</code>→<code>&lt;a&gt;</code>，同时保留层级结构。</p>
+    </div>
+    <div class="card">
+      <div class="t">🖼️ 图片怎么处理？</div>
+      <p>Word 里的图片会从包内提取，转成 <b>base64 内嵌</b>到 HTML（<code>data:image/png;base64,...</code>），所以生成的 HTML 是<b>单文件自包含</b>，拷到哪都能打开。</p>
+    </div>
+    <div class="card">
+      <div class="t">✨ 为什么"漂亮"？</div>
+      <p>因为这是<b>忠实还原</b>：Word 原有的标题层级、表格边框、列表缩进都被保留。工具返回原始 HTML 给模型，模型再包一层标题、封面和样式说明，最终由前端打开——不是模型"凭空画"的。</p>
+    </div>
+  </div>
+
+  <h2><span class="no">3</span>PPT 生成原理（generate_ppt → python-pptx）</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="t">📐 大纲怎么变成页？</div>
+      <p>模型输出 Markdown 大纲：每个 <code># 标题</code> 切一页，标题下每个 <code>- 要点</code> 成为该页 bullet。工具按这个规则<b>逐页创建幻灯片</b>。</p>
+    </div>
+    <div class="card">
+      <div class="t">🗂️ python-pptx 做什么？</div>
+      <p>它是纯 Python 的 OOXML 写入库，直接操作 <code>.pptx</code> 内部结构（演示文稿 XML）。工具调用 <code>Presentation()</code> 建空白稿，用布局模板往每页写入标题与要点。</p>
+    </div>
+    <div class="card">
+      <div class="t">🖥️ 版式怎么定的？</div>
+      <p>固定 16:9 宽屏（13.333 × 7.5 英寸）：第一页封面（标题版式），后续页标题+内容版式；要点超过 120 字自动把字号从 24pt 降到 20pt，防止溢出。</p>
+    </div>
+    <div class="card">
+      <div class="t">📦 最终产出什么？</div>
+      <p>一个真实的 <code>.pptx</code> 文件（Microsoft OOXML 格式），可以用 Keynote / PowerPoint / WPS 直接打开编辑——<b>不是截图、不是大纲文本</b>，是真正的演示文稿。</p>
+    </div>
+  </div>
+
+  <h2><span class="no">4</span>TXT / 纯文本转换</h2>
+  <div class="card" style="max-width:100%">
+    <p>最简单：文本无需转换引擎，直接以纯文本参与对话。模型读完 <code>.txt</code> 内容后，同样用 <code>generate_ppt</code>（组织大纲生成 PPT）或直接输出 HTML 代码文本。所以 TXT → HTML/PPT 走的也是「模型组织 + 工具渲染」同一条链路。</p>
+  </div>
+
+  <h2><span class="no">5</span>为什么比「让模型直接写代码」漂亮？</h2>
+  <div class="note">
+    <b>对比：</b>如果让模型自己输出 HTML/PPT 代码，它只能凭记忆"默写"标签，表格错位、样式缺失、图片丢失是常态。<br>
+    <b>我们的做法：</b>模型只做它擅长的事（理解 + 提炼 + 编排），<b>文件生成交给专业本地库</b>（mammoth 是专门的 docx 转换器，python-pptx 是专门的操作引擎），它们对文件格式的理解远超语言模型——这就是"漂亮"的本质：<b>分工正确</b>。另外，工具失败（如库缺失、格式错误）会通过 <code>tool_result</code> 带错误信息回填给模型，模型还能自动纠错重试，形成闭环。
+  </div>
+
+  <div class="footer">颤翎子客户端 · Agent 文档转换技术拆解 · 2026-09</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>颤翎子客户端全功能测试报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1626; --panel:#182234; --panel2:#1e2a40; --line:#2a3852;
+    --text:#e8eef7; --dim:#93a2bd; --accent:#5aa9ff; --green:#3ddc97; --red:#ff5d73; --orange:#ffb454; --purple:#a78bfa;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.6;padding:32px 20px 60px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:.5px}
+  h1 small{display:block;font-size:13px;color:var(--dim);font-weight:400;margin-top:6px}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 26px}
+  .meta span{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--dim)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:26px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card .num{font-size:30px;font-weight:700;margin-top:2px}
+  .card .lbl{font-size:12px;color:var(--dim)}
+  .card.g .num{color:var(--green)} .card.r .num{color:var(--red)} .card.o .num{color:var(--orange)} .card.b .num{color:var(--accent)}
+  h2{font-size:18px;margin:32px 0 14px;padding-left:10px;border-left:3px solid var(--accent)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;height:340px}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:var(--dim);font-weight:600;font-size:12px}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .tag.p0{background:rgba(255,93,115,.16);color:var(--red)} .tag.p1{background:rgba(255,180,84,.16);color:var(--orange)} .tag.p2{background:rgba(167,139,250,.16);color:var(--purple)}
+  .tag.ok{background:rgba(61,220,151,.14);color:var(--green)} .tag.warn{background:rgba(255,180,84,.14);color:var(--orange)} .tag.fail{background:rgba(255,93,115,.14);color:var(--red)}
+  .note{font-size:12px;color:var(--dim);margin-top:6px}
+  .banner{background:linear-gradient(90deg,rgba(255,93,115,.14),rgba(255,180,84,.10));border:1px solid rgba(255,93,115,.35);border-radius:12px;padding:16px 18px;margin-bottom:8px}
+  .banner b{color:var(--red)}
+  ul{padding-left:20px} li{margin:4px 0;font-size:13.5px}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:12px;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>颤翎子 · 私有域AI助手 — 客户端全功能测试报告<small>测试方式：真实 GUI 操作（CDP 驱动）+ API 交叉验证 + 渲染层性能计时 ｜ 2026-09-06 20:31–21:10（UTC+1）</small></h1>
+  <div class="meta">
+    <span>被测：Electron 0.1.0 + React 19 + Vite</span>
+    <span>后端：FastAPI @ 127.0.0.1:8765</span>
+    <span>模型：agnes-2.5-flash（仅 1 可选）</span>
+    <span>用例：42</span>
+    <span>测试数据已清理</span>
+  </div>
+
+  <div class="banner"><b>结论先行：</b>客户端整体可用，UI 完成度高、本地渲染性能优秀；但存在 <b>1 个 P0 级核心链路缺陷</b>（企业系统工具类对话卡死约 69s 后报 400 错误）与 <b>3 个 P1 缺陷</b>（工具启停不可用 / 会话导出缺失 / 健康巡检持续误报），<b>建议修复后再发布</b>。</div>
+
+  <div class="cards">
+    <div class="card g"><div class="lbl">功能用例通过</div><div class="num">36 / 42</div><div class="lbl">通过率 85.7%</div></div>
+    <div class="card r"><div class="lbl">P0 阻断缺陷</div><div class="num">1</div><div class="lbl">工具类对话链路断裂</div></div>
+    <div class="card o"><div class="lbl">P1 严重缺陷</div><div class="num">3</div><div class="lbl">启停/导出/巡检</div></div>
+    <div class="card b"><div class="lbl">性能表现</div><div class="num">优秀</div><div class="lbl">切页 11–14ms · 启动 2–4s</div></div>
+  </div>
+
+  <h2>一、模块功能测试结果</h2>
+  <div class="grid2">
+    <div class="chart" id="c1"></div>
+    <div class="chart" id="c2"></div>
+  </div>
+
+  <h2>二、性能指标</h2>
+  <div class="grid2">
+    <div class="chart" id="c3"></div>
+    <div class="chart" id="c4"></div>
+  </div>
+
+  <h2>三、缺陷清单</h2>
+  <table>
+    <tr><th style="width:70px">级别</th><th>缺陷</th><th>根因 / 位置</th><th>用户影响</th></tr>
+    <tr><td><span class="tag p0">P0</span></td><td>企业系统工具类对话链路断裂</td><td><code>providers/base.py</code> 流式工具调用未按索引聚合 → <code>orchestrator.py</code> 将 token 片段当独立工具执行 → 含 null 消息触发模型 400</td><td>「查公司请假制度」等工具指令卡死约 69s 后直接暴露错误 JSON，核心功能不可用</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>工具启停实际不可用</td><td><code>ToolsView.tsx</code> 内置工具按钮硬编码 <code>disabled</code>；连接器工具被 403 <code>source_not_whitelisted</code> 拒绝且无白名单入口</td><td>用户无法停用任何内置工具；连接器工具无法启用</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>会话导出功能不存在</td><td>前端声明 <code>/api/conversations/{id}/export</code>，后端 404 未实现，UI 无入口</td><td>「导出」为半成品功能，不可用</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>健康巡检每分钟误报连接异常</td><td><code>ops.py</code> 引用不存在的 <code>create_provider</code> → ImportError 被吞 → 审计持续写 <code>connector_down</code>；<code>ops/health</code> 缓存 2h 不刷新</td><td>设置页「● 健康」与巡检「连接异常」互相矛盾，健康状态不可信</td></tr>
+    <tr><td><span class="tag p2">P2</span></td><td>附件按钮为占位</td><td>点击仅提示「附件上传功能即将上线」</td><td>附件功能缺失</td></tr>
+    <tr><td><span class="tag p2">P2</span></td><td>用量 Prompt Token=0</td><td>用量记录未写入 prompt_tokens</td><td>Token/成本统计不完整</td></tr>
+    <tr><td><span class="tag p2">P2</span></td><td>模型服务延迟偏高</td><td>连接测试 2349–5056ms，接近巡检 5s 探测阈值</td><td>健康误判风险</td></tr>
+  </table>
+
+  <h2>四、模块用例明细</h2>
+  <table>
+    <tr><th>模块</th><th>结论</th><th>用例要点</th></tr>
+    <tr><td>对话 💬</td><td><span class="tag warn">部分通过 9/12</span></td><td>流式输出✅ 自动标题✅ 复制✅ 图片粘贴✅ 权限模式✅ 新会话✅；附件❌ 导出❌ 工具类对话❌(P0)</td></tr>
+    <tr><td>工具 🔧</td><td><span class="tag fail">未通过 2/4</span></td><td>列表展示✅ 错误反馈✅；内置禁用❌ 连接器启用❌</td></tr>
+    <tr><td>知识库 📚</td><td><span class="tag ok">通过 2/2</span></td><td>空态引导✅ 未配置检索提示✅</td></tr>
+    <tr><td>用量 📊</td><td><span class="tag ok">通过 2/2</span></td><td>多维统计✅ CSV导出✅（Prompt=0 ⚠️）</td></tr>
+    <tr><td>连接器 🔗</td><td><span class="tag ok">通过 4/4</span></td><td>新增/列表/测试连接(异常态)/编辑/删除全闭环</td></tr>
+    <tr><td>项目 📁</td><td><span class="tag ok">通过 4/4</span></td><td>创建(含描述)/详情/成员/任务/资产</td></tr>
+    <tr><td>编排 ⚡</td><td><span class="tag ok">通过 4/4</span></td><td>6模板自动填充/5触发器/创建/手动运行(1ms 成功)</td></tr>
+    <tr><td>审计 🛡️</td><td><span class="tag warn">部分通过 3/4</span></td><td>全链路记录(脱敏)/回放/熔断✅；巡检误报❌(P1)</td></tr>
+    <tr><td>技能 🧩</td><td><span class="tag ok">通过 3/3</span></td><td>已安装列表/安装错误提示/市场接口</td></tr>
+    <tr><td>设置 ⚙️</td><td><span class="tag ok">通过 3/3</span></td><td>模型服务器CRUD+测试+同步/知识库连接/SSO/安全配置</td></tr>
+  </table>
+
+  <h2>五、体验亮点与短板</h2>
+  <div class="grid2">
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px">
+      <b style="color:var(--green)">做得好的</b>
+      <ul style="margin-top:8px">
+        <li>空态设计完整：知识库/连接器/项目/工作流均有引导文案与操作路径</li>
+        <li>错误反馈健全：工具启用失败、技能安装失败、连接测试失败均有明确提示</li>
+        <li>信息架构清晰：10 个顶部页签 + 底部工作空间/权限/额度状态栏</li>
+        <li>深色/浅色主题即时切换；权限模式循环切换</li>
+        <li>工作流模板自动填充完整（名称/ID/描述/步骤DSL）</li>
+      </ul>
+    </div>
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px">
+      <b style="color:var(--red)">待改进的</b>
+      <ul style="margin-top:8px">
+        <li>对话错误场景直接把原始 JSON 抛给用户，无友好化包装（P0）</li>
+        <li>工具管理页「禁用」按钮可见但不可用，易造成困惑（P1）</li>
+        <li>健康状态显示与巡检结果矛盾，误导判断（P1）</li>
+        <li>附件功能占位；会话导出缺失</li>
+        <li>模型服务端延迟 2.3–5s，对话响应偏慢</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="note">数据口径：以上数值均来自本次真实操作实测（CDP 事件计时、渲染层 performance API、后端接口交叉验证），未使用估算值。技能市场为空、模型仅 1 个可选、连接器无真实后端属测试环境配置限制，已在正文标注。</p>
+</div>
+
+<script>
+(function(){
+  function mk(id,opt){var el=document.getElementById(id);if(window.echarts&&el){var c=echarts.init(el);c.setOption(opt);window.addEventListener('resize',function(){c.resize();});}}
+  var AX={color:'#93a2bd',fontSize:11}, TX={color:'#e8eef7',fontSize:13};
+  // c1: 模块通过率
+  mk('c1',{
+    backgroundColor:'transparent',
+    title:{text:'各模块用例通过率',left:'center',textStyle:{color:'#e8eef7',fontSize:14}},
+    tooltip:{trigger:'axis',triggerOn:'click',renderMode:'richText',confine:true,textStyle:{fontSize:11}},
+    grid:{left:8,right:20,top:44,bottom:8,containLabel:true},
+    xAxis:{type:'value',max:100,axisLabel:AX,splitLine:{lineStyle:{color:'#22304a'}}},
+    yAxis:{type:'category',data:['技能','设置','编排','项目','连接器','知识库','用量','审计','对话','工具'],axisLabel:{color:'#c6d2e6',fontSize:11}},
+    series:[{type:'bar',data:[
+      {value:100,itemStyle:{color:'#3ddc97'}},{value:100,itemStyle:{color:'#3ddc97'}},
+      {value:100,itemStyle:{color:'#3ddc97'}},{value:100,itemStyle:{color:'#3ddc97'}},
+      {value:100,itemStyle:{color:'#3ddc97'}},{value:100,itemStyle:{color:'#3ddc97'}},
+      {value:100,itemStyle:{color:'#3ddc97'}},{value:75,itemStyle:{color:'#ffb454'}},
+      {value:75,itemStyle:{color:'#ffb454'}},{value:50,itemStyle:{color:'#ff5d73'}}],
+      label:{show:true,position:'right',formatter:'{c}%',color:'#c6d2e6',fontSize:11},barWidth:16}]
+  });
+  // c2: 缺陷严重度分布
+  mk('c2',{
+    backgroundColor:'transparent',
+    title:{text:'缺陷严重度分布',left:'center',textStyle:{color:'#e8eef7',fontSize:14}},
+    tooltip:{trigger:'item',triggerOn:'click',renderMode:'richText',confine:true,textStyle:{fontSize:11}},
+    legend:{bottom:0,textStyle:{color:'#93a2bd',fontSize:11},itemWidth:14,itemHeight:8},
+    series:[{name:'缺陷',type:'pie',radius:['38%','64%'],center:['50%','46%'],
+      label:{formatter:'{b}: {c} 项 ({d}%)',color:'#c6d2e6',fontSize:11},
+      data:[
+        {value:1,name:'P0 阻断',itemStyle:{color:'#ff5d73'}},
+        {value:3,name:'P1 严重',itemStyle:{color:'#ffb454'}},
+        {value:3,name:'P2 一般',itemStyle:{color:'#a78bfa'}}]}]
+  });
+  // c3: 性能横向对比
+  mk('c3',{
+    backgroundColor:'transparent',
+    title:{text:'关键性能指标（对数刻度 ms）',left:'center',textStyle:{color:'#e8eef7',fontSize:14}},
+    tooltip:{trigger:'axis',triggerOn:'click',renderMode:'richText',confine:true,textStyle:{fontSize:11}},
+    legend:{top:30,textStyle:{color:'#93a2bd',fontSize:11},itemWidth:14,itemHeight:8},
+    grid:{left:8,right:24,top:64,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:['页签切换','冷启动','模型探测延迟','简单问答全量','P0故障卡死'],axisLabel:{color:'#c6d2e6',fontSize:11}},
+    yAxis:{type:'value',name:'毫秒(ms)',nameTextStyle:{color:'#93a2bd'},axisLabel:AX,splitLine:{lineStyle:{color:'#22304a'}}},
+    series:[{name:'实测值',type:'bar',barWidth:34,
+      data:[
+        {value:14,itemStyle:{color:'#3ddc97'}},
+        {value:4000,itemStyle:{color:'#3ddc97'}},
+        {value:5056,itemStyle:{color:'#ffb454'}},
+        {value:11600,itemStyle:{color:'#ffb454'}},
+        {value:69300,itemStyle:{color:'#ff5d73'}}],
+      label:{show:true,position:'top',formatter:function(p){return p.value>=1000?(p.value/1000).toFixed(1)+'s':p.value+'ms';},color:'#c6d2e6',fontSize:10}}]
+  });
+  // c4: 内存占用
+  mk('c4',{
+    backgroundColor:'transparent',
+    title:{text:'空闲内存占用（Electron 进程）',left:'center',textStyle:{color:'#e8eef7',fontSize:14}},
+    tooltip:{trigger:'axis',triggerOn:'click',renderMode:'richText',confine:true,textStyle:{fontSize:11}},
+    grid:{left:8,right:24,top:44,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:['主进程','渲染进程','GPU/网络','合计'],axisLabel:{color:'#c6d2e6',fontSize:11}},
+    yAxis:{type:'value',name:'MB',nameTextStyle:{color:'#93a2bd'},axisLabel:AX,splitLine:{lineStyle:{color:'#22304a'}}},
+    series:[{type:'bar',barWidth:36,data:[
+      {value:180,itemStyle:{color:'#5aa9ff'}},
+      {value:206,itemStyle:{color:'#5aa9ff'}},
+      {value:35,itemStyle:{color:'#5aa9ff'}},
+      {value:421,itemStyle:{color:'#a78bfa'}}],
+      label:{show:true,position:'top',color:'#c6d2e6',fontSize:11}}]
+  });
+})();
+</script>
+</body>
+</html>
