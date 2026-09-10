@@ -13,6 +13,13 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      # 主仓库 main 与远端的 v0.1.0 release 线已分叉，本 workflow 在 build-win
+      # 孤儿分支上开发，因此这里显式把该分支列入触发范围。
+      # 注意：gh workflow run 只能触发「默认分支」上的 workflow，
+      # 在分支上开发时请用 push 触发（改完 workflow 推一次即可）。
+      - main
+      - build-win
   workflow_dispatch:
 
 jobs:
