@@ -37,10 +37,19 @@ echo "[stage] 主机: $HOST_KEY  运行时 key: ${RUNTIME_KEY:-(全部)}"
 rm -rf "$ROOT/build-staging"
 mkdir -p "$STAGE_AGENT"
 
+# 注意：不能用 rsync —— Windows 的 Git Bash 不带 rsync（CI 上会 127 command not found）。
+# 统一用「cp -R 全量复制 + 事后删除排除项」，mac / Linux / Windows Git Bash 都能跑。
+copy_tree() {
+  local src="$1" dst="$2"
+  mkdir -p "$dst"
+  cp -R "$src/." "$dst/"
+}
+
 # 1) 后端代码（排除运行时数据与虚拟环境）
-rsync -a --exclude '.venv' --exclude 'data' --exclude '__pycache__' \
-  --exclude '*.pyc' --exclude '.pytest_cache' \
-  "$AGENT_SRC/" "$STAGE_AGENT/"
+copy_tree "$AGENT_SRC" "$STAGE_AGENT"
+rm -rf "$STAGE_AGENT/.venv" "$STAGE_AGENT/data" "$STAGE_AGENT/.pytest_cache"
+find "$STAGE_AGENT" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+find "$STAGE_AGENT" -type f -name '*.pyc' -delete 2>/dev/null || true
 
 # 2) Python 运行时（python-build-standalone，跨机器可移植）
 #    runtime/python/<key>/  由 scripts/fetch-python-runtime.sh 生成。
@@ -53,22 +62,22 @@ if [ -d "$PROJECT/runtime/python" ]; then
       echo "[stage] ✗ 缺少运行时: $src（请先执行 scripts/fetch-python-runtime.sh $RUNTIME_KEY）" >&2
       exit 1
     fi
-    rsync -a "$src/" "$STAGE_RUNTIME/python/$RUNTIME_KEY/"
+    copy_tree "$src" "$STAGE_RUNTIME/python/$RUNTIME_KEY"
     echo "[stage] ✓ 内置运行时: $RUNTIME_KEY"
   else
-    rsync -a "$PROJECT/runtime/python/" "$STAGE_RUNTIME/python/"
+    copy_tree "$PROJECT/runtime/python" "$STAGE_RUNTIME/python"
     echo "[stage] ✓ 内置运行时（全部已下载的）"
   fi
 else
   echo "[stage] ⚠ 未发现 runtime/python/，回落到 .venv（仅同机可用）"
-  rsync -a --exclude '__pycache__' --exclude '*.pyc' \
-    "$AGENT_SRC/.venv/" "$STAGE_AGENT/.venv/"
+  copy_tree "$AGENT_SRC/.venv" "$STAGE_AGENT/.venv"
 fi
 
 # 3) 出厂默认配置（无机器相关的绝对路径；运行时复制到 userData 后可写）
 if [ -d "$CONFIG_SRC" ]; then
   mkdir -p "$STAGE_CONFIG"
-  rsync -a --exclude '*.local.json' "$CONFIG_SRC/" "$STAGE_CONFIG/"
+  copy_tree "$CONFIG_SRC" "$STAGE_CONFIG"
+  rm -f "$STAGE_CONFIG"/*.local.json 2>/dev/null || true
   echo "[stage] ✓ 出厂配置"
 fi
 
