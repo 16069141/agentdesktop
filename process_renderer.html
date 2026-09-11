@@ -1,0 +1,64 @@
+<html style="margin:0;padding:0;">
+<div style="background-color:transparent;box-sizing:border-box;font-family:'Roboto','PingFang SC','Segoe UI',Arial,sans-serif;color:#1A1B1C;padding:4px;">
+  <div style="font-size:15px;font-weight:600;margin-bottom:2px;">私有域 AI 助手 · 开发流程总览</div>
+  <div style="font-size:12px;color:#6B7280;margin-bottom:12px;">5 个阶段 · 10–14 周 · 每阶段以 DoD 验收后才进入下一阶段</div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:10px;box-sizing:border-box;">
+
+    <!-- Phase 0 -->
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;border:1px solid rgba(0,0,0,0.08);border-radius:14px;overflow:hidden;background:#fff;">
+      <div style="background:#8BC8EA;color:#fff;font-size:12px;font-weight:600;padding:6px 10px;">Phase 0 · 需求冻结+PoC</div>
+      <div style="padding:8px 10px;">
+        <div style="font-size:11px;color:#6B7280;">周期：<b style="color:#1A1B1C;">1 周</b></div>
+        <div style="font-size:11.5px;margin-top:5px;line-height:1.5;">冻结 SSE/API 协议与数据模型；PoC 流式对话跑通</div>
+        <div style="font-size:11px;color:#52C41A;margin-top:6px;border-top:1px dashed rgba(0,0,0,0.08);padding-top:5px;">✓ DoD：curl 拿到 meta/text/done</div>
+      </div>
+    </div>
+
+    <!-- Phase 1 -->
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;border:1px solid rgba(0,0,0,0.08);border-radius:14px;overflow:hidden;background:#fff;">
+      <div style="background:#A3D5E8;color:#fff;font-size:12px;font-weight:600;padding:6px 10px;">Phase 1 · 基础框架</div>
+      <div style="padding:8px 10px;">
+        <div style="font-size:11px;color:#6B7280;">周期：<b style="color:#1A1B1C;">2–3 周</b></div>
+        <div style="font-size:11.5px;margin-top:5px;line-height:1.5;">桌面骨架 + 对话 UI + FastAPI + SSE 端到端 + SQLite</div>
+        <div style="font-size:11px;color:#52C41A;margin-top:6px;border-top:1px dashed rgba(0,0,0,0.08);padding-top:5px;">✓ DoD：会话不丢、流式回复（A1/A5）</div>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;border:1px solid rgba(0,0,0,0.08);border-radius:14px;overflow:hidden;background:#fff;">
+      <div style="background:#94D8C3;color:#fff;font-size:12px;font-weight:600;padding:6px 10px;">Phase 2 · 核心能力</div>
+      <div style="padding:8px 10px;">
+        <div style="font-size:11px;color:#6B7280;">周期：<b style="color:#1A1B1C;">3–4 周</b></div>
+        <div style="font-size:11.5px;margin-top:5px;line-height:1.5;">MCP 工具 + RAG 混合检索 + 上下文治理 + 安全基线</div>
+        <div style="font-size:11px;color:#52C41A;margin-top:6px;border-top:1px dashed rgba(0,0,0,0.08);padding-top:5px;">✓ DoD：RAG ≥80%、安全验证（A3/A6）</div>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;border:1px solid rgba(0,0,0,0.08);border-radius:14px;overflow:hidden;background:#fff;">
+      <div style="background:#9BBBF4;color:#fff;font-size:12px;font-weight:600;padding:6px 10px;">Phase 3 · Agent 化</div>
+      <div style="padding:8px 10px;">
+        <div style="font-size:11px;color:#6B7280;">周期：<b style="color:#1A1B1C;">3–4 周</b></div>
+        <div style="font-size:11.5px;margin-top:5px;line-height:1.5;">多轮工具闭环 + 模型路由 + 编程助手 + 评测集</div>
+        <div style="font-size:11px;color:#52C41A;margin-top:6px;border-top:1px dashed rgba(0,0,0,0.08);padding-top:5px;">✓ DoD：工具调用 ≥3 轮（A4）</div>
+      </div>
+    </div>
+
+    <!-- Phase 4 -->
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;border:1px solid rgba(0,0,0,0.08);border-radius:14px;overflow:hidden;background:#fff;">
+      <div style="background:#C9A7E8;color:#fff;font-size:12px;font-weight:600;padding:6px 10px;">Phase 4 · 打磨发布</div>
+      <div style="padding:8px 10px;">
+        <div style="font-size:11px;color:#6B7280;">周期：<b style="color:#1A1B1C;">2–3 周</b></div>
+        <div style="font-size:11.5px;margin-top:5px;line-height:1.5;">进程生命周期 + 打包分发 + 文档 + 全量验收</div>
+        <div style="font-size:11px;color:#52C41A;margin-top:6px;border-top:1px dashed rgba(0,0,0,0.08);padding-top:5px;">✓ DoD：六项硬指标全过（A1–A6）</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="font-size:11px;color:#6B7280;margin-top:10px;line-height:1.6;">
+    依赖链：P0 冻结协议 → P1 前后端并行 → P2 依赖 P1 后端 → P3 依赖 P2 的 MCP/RAG → P4 收尾。来源：DEVELOPMENT-PROCESS-TOKEN.md。
+  </div>
+</div>
+</html>

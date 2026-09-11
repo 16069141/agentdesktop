@@ -21,6 +21,8 @@ import time
 from typing import Any, AsyncIterator, Optional
 
 from ..context.context_manager import ContextManager
+from ..dsml import strip_dsml_text
+from ..dsml.stream import dsml_guard
 from ..providers import (
     _mark_model_tool_support,
     classify_task,
@@ -428,11 +430,11 @@ class AgentOrchestrator:
             LLM_EVENT_TIMEOUT_SEC = 60.0
 
             try:
-                stream = provider.chat(
+                stream = dsml_guard(provider.chat(
                     messages=full_messages,
                     model=state.model_id,
                     **chat_kwargs,
-                )
+                ))
                 while True:
                     try:
                         event = await asyncio.wait_for(
@@ -502,6 +504,12 @@ class AgentOrchestrator:
             # role="tool" 消息没有前置的 tool_calls，OpenAI 兼容接口会直接报错：
             # "messages with role 'tool' must be a response to a preceeding message
             #  with 'tool_calls'" —— 表现为第二轮起整个工具闭环崩掉。
+            # 二次防御：剥离可能残留的 DSML 源码。
+            # 流式拦截已在 provider 层把 DSML 翻译成 tool_calls，这里只兜底
+            # 「拦截漏过」的极端情况 —— 避免 DSML 源码被写进会话历史，
+            # 下一轮又作为上下文回灌给模型、或直接渲染到前端。
+            assistant_content = strip_dsml_text(assistant_content)
+
             assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_content}
             if all_tool_calls:
                 assistant_msg["tool_calls"] = all_tool_calls
@@ -620,11 +628,11 @@ class AgentOrchestrator:
                     *context["messages"],
                 ]
                 provider = self._registry.get(state.provider_id)
-                stream = provider.chat(
+                stream = dsml_guard(provider.chat(
                     messages=full_messages,
                     model=state.model_id,
                     stream=True,
-                )
+                ))
                 final_content = ""
                 while True:
                     try:
@@ -647,6 +655,8 @@ class AgentOrchestrator:
                     elif etype == "error":
                         yield {"type": "error", "message": event.get("message", "")}
                         break
+                if final_content:
+                    final_content = strip_dsml_text(final_content)
                 if final_content:
                     state.messages.append({"role": "assistant", "content": final_content})
             except Exception as exc:

@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
+from ..dsml import DSMLStreamParser
 from ..security import keychain
 
 logger = logging.getLogger(__name__)
@@ -384,6 +385,49 @@ class OpenAICompatibleProvider(BaseProvider):
             return True
         except Exception:
             return False
+
+
+# ──────────────────────────────────────────────────────────────────────
+# DSML 逃逸拦截（DeepSeek 深度思考模式偶发把工具调用写进 content）
+# ──────────────────────────────────────────────────────────────────────
+
+def _dsml_event(ev: dict) -> dict:
+    """把 DSML 解析事件归一化为 provider 层事件。
+
+    ``dsml_error`` 走 text 通道而非 error 通道：error 会让 orchestrator 直接
+    return、终止整个 Agent 循环；而需求要求「解析失败只推降级提示，不阻塞会话」。
+    """
+    if ev.get("type") == "dsml_error":
+        return {
+            "type": "text",
+            "delta": f"\n[系统提示] {ev.get('message', '工具调用解析失败')}\n",
+        }
+    return ev
+
+
+async def _dsml_guard(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
+    """在 provider 事件流上挂载 DSML 逃逸拦截。
+
+    - 正文 delta 先过 DSMLStreamParser：DSML 块被剥离，翻译成标准
+      ``tool_calls`` 事件，交给既有 ToolNode 执行并推 SSE tool 事件；
+    - 收到 done / error 前先冲刷解析器 —— orchestrator 遇 ``done`` 即 break，
+      晚于 done 到达的工具调用会被整体丢弃，必须抢在前面下发；
+    - 流结束时再冲刷一次，处理未闭合块的补救解析。
+    """
+    parser = DSMLStreamParser()
+    async for ev in events:
+        etype = ev.get("type")
+        if etype == "text":
+            for out in parser.feed(ev.get("delta", "")):
+                yield _dsml_event(out)
+        elif etype in ("done", "error"):
+            for out in parser.close():
+                yield _dsml_event(out)
+            yield ev
+        else:
+            yield ev
+    for out in parser.close():
+        yield _dsml_event(out)
 
 
 class _MockClient:

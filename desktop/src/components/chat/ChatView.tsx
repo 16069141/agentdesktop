@@ -5,6 +5,7 @@ import { streamChat } from '../../sse/sseClient'
 import MessageItem from './MessageItem'
 import InputBox from './InputBox'
 import type { Message, TraceItem, Citation, FileAttachment } from '../../types'
+import { stripDSML } from '../../utils/dsml'
 
 const QUICK_COMMANDS = [
   { text: '查公司请假制度', icon: '📋' },
@@ -238,7 +239,9 @@ const ChatView: React.FC = () => {
       }
       if (textDirty) {
         textDirty = false
-        updateMessageInConversation(conversationId, assistantId, { content: buffer })
+        // stripDSML：后端已拦截，此处只兜「流式中间帧的半截标记」与历史脏数据。
+        // 只影响显示内容，不影响累积 buffer —— 下一帧按完整 buffer 重新计算。
+        updateMessageInConversation(conversationId, assistantId, { content: stripDSML(buffer) })
       }
     }
 
@@ -335,7 +338,7 @@ const ChatView: React.FC = () => {
               const msg = String(data.message ?? '未知错误')
               pushTrace(assistantId, { kind: 'error', label: '生成失败', detail: msg, isError: true })
               updateMessageInConversation(conversationId, assistantId, {
-                content: buffer || `⚠ 生成失败：${msg}`,
+                content: stripDSML(buffer) || `⚠ 生成失败：${msg}`,
               })
               break
             }
@@ -358,7 +361,7 @@ const ChatView: React.FC = () => {
             detail: error.message,
             isError: true,
           })
-          updateMessageInConversation(conversationId, assistantId, { content: buffer || `⚠ ${error.message}` })
+          updateMessageInConversation(conversationId, assistantId, { content: stripDSML(buffer) || `⚠ ${error.message}` })
         },
 
         onDone: (aborted) => {

@@ -1,0 +1,45 @@
+<html style="margin:0;padding:0;">
+<div style="background-color:transparent;box-sizing:border-box;font-family:'Roboto','PingFang SC','Segoe UI',Arial,sans-serif;color:#1A1B1C;padding:4px;">
+  <div style="font-size:15px;font-weight:600;margin-bottom:2px;">最省 Token · 投喂方式对比</div>
+  <div style="font-size:12px;color:#6B7280;margin-bottom:12px;">核心：压缩输入上下文 + 减少返工，量级差异而非线性节省（示意）</div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:12px;box-sizing:border-box;">
+
+    <!-- 全量方式 -->
+    <div style="flex:1 1 240px;min-width:0;box-sizing:border-box;border:1px solid rgba(234,102,104,0.35);border-radius:14px;background:rgba(234,102,104,0.05);padding:10px 12px;">
+      <div style="font-size:12px;font-weight:600;color:#EA6668;margin-bottom:6px;">✗ 全量投喂（不推荐）</div>
+      <div style="font-size:11.5px;line-height:1.6;color:#4B5563;">
+        两份文档整段塞入 + 单会话跑完全程<br/>
+        <span style="color:#6B7280;">→ 上下文 ~30k+/轮，历史持续累积；返工风险高</span>
+      </div>
+      <div style="font-size:11px;color:#6B7280;margin-top:6px;">总成本：基准值</div>
+    </div>
+
+    <!-- 切片方式 -->
+    <div style="flex:1 1 240px;min-width:0;box-sizing:border-box;border:1px solid rgba(82,196,26,0.35);border-radius:14px;background:rgba(82,196,26,0.06);padding:10px 12px;">
+      <div style="font-size:12px;font-weight:600;color:#52C41A;margin-bottom:6px;">✓ 按阶段切片 + 引用式加载（推荐）</div>
+      <div style="font-size:11.5px;line-height:1.6;color:#4B5563;">
+        每阶段只给任务 + 相关规格小节 + 文档路径引用<br/>
+        <span style="color:#6B7280;">→ 上下文降至 ~2–4k/轮；独立会话、按需 Read</span>
+      </div>
+      <div style="font-size:11px;color:#6B7280;margin-top:6px;">总成本：约 1/4–1/3</div>
+    </div>
+
+  </div>
+
+  <div style="font-size:12px;font-weight:600;margin:14px 0 6px;">7 条执行策略</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;box-sizing:border-box;">
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>① 阶段切片</b><br/><span style="color:#6B7280;">不全量投喂，只给当前阶段任务+规格</span></div>
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>② 引用式加载</b><br/><span style="color:#6B7280;">写路径让 AI 自己 Read，不复制全文</span></div>
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>③ 契约冻结</b><br/><span style="color:#6B7280;">P0 定死协议/模型，之后只引用不重述</span></div>
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>④ DoD 门禁</b><br/><span style="color:#6B7280;">未过验收不进下阶段，防返工双倍消耗</span></div>
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>⑤ 独立会话</b><br/><span style="color:#6B7280;">每阶段/子模块新会话，清上下文防累积</span></div>
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>⑥ 批量指令</b><br/><span style="color:#6B7280;">一次交互做一类任务，减少多轮往返</span></div>
+    <div style="flex:1 1 150px;min-width:0;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.5;"><b>⑦ 明确边界</b><br/><span style="color:#6B7280;">目标单一+禁止事项明确，避免理解偏差重做</span></div>
+  </div>
+
+  <div style="font-size:11px;color:#6B7280;margin-top:10px;line-height:1.6;">
+    策略来源：DEVELOPMENT-PROCESS-TOKEN.md §三。成本为量级示意，非精确测量。
+  </div>
+</div>
+</html>
