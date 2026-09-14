@@ -14,6 +14,7 @@ from .parser import (
     FW_PIPE,
     START_TAG_A,
     parse_dsml_block,
+    parse_flat_block,
     resolve_tool_name,
     strip_dsml_text,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "START_TAG_A",
     "END_TAG_A",
     "parse_dsml_block",
+    "parse_flat_block",
     "resolve_tool_name",
     "strip_dsml_text",
     "dsml_guard",

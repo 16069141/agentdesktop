@@ -60,6 +60,19 @@ N_END_A = "</||DSML||>"
 N_START_B = "<|DSML|"  # 行前缀式起始（B 式），无独立结束标记
 N_END_B = "</|DSML|"  # 行前缀式可选显式闭合
 
+# 扁平伪 XML 工具调用（MiniMax / agnes 系列的 ReAct 文本协议）。
+# 模型同时会走原生 tool_calls 字段，流式层只负责把这段伪 XML 从 text 通道剥离。
+FLAT_OPEN_PREFIX = "<tool_call"
+N_FLAT_END = "<" + "/tool_call>"
+
+# DSML 扁平变体（DeepSeek V4-Pro 实际输出）：
+#   <||DSML||tool_calls> <||DSML||invoke name="shell">
+#     <||DSML||parameter name="command" string="true">...</||DSML||parameter>
+#   </||DSML||invoke> </||DSML||tool_calls>
+# 与旧 A 式（行式 | tool_calls>）不同，所有标签都带完整 <||DSML|| 前缀。
+N_DSML_FLAT_START = "<||DSML||tool_calls>"
+N_DSML_FLAT_END = "</||DSML||tool_calls>"
+
 _DEFAULT_MAX_TEXT_CHARS = 256 * 1024  # 文本态 buffer 上限
 _DEFAULT_MAX_BLOCK_CHARS = 64 * 1024  # 单个 DSML 块上限
 
@@ -101,19 +114,97 @@ TOOL_ALIASES: dict[str, str] = {
 # shell 工具的命令参数别名（模型可能写成 cmd / script / input）
 _SHELL_COMMAND_KEYS = ("command", "cmd", "script", "command_line", "input", "shell_command")
 
+# flat block parsing (supports <function=x> and <invoke name="x"> forms)
+
 
 def resolve_tool_name(raw_name: str) -> str:
-    """把 DSML 里的 invoke name 映射为本地工具名（未命中则原样返回）。"""
-    key = (raw_name or "").strip().strip("\"'").lower()
+    """Map DSML invoke name to registered tool name."""
+    key = (raw_name or "").strip().strip(chr(34) + chr(39)).lower()
     return TOOL_ALIASES.get(key, key or raw_name or "")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# 结构化工具调用对象
-# ─────────────────────────────────────────────────────────────────────
+def parse_flat_block(raw, *, start_index=0):
+    """Parse flat pseudo-XML tool call block (inner content only)."""
+    if not raw or not raw.strip():
+        return []
+    calls = []
+    seq = start_index
+    FUNC_OPENS = ["<function=", "<invoke "]
+    PARAM_OPENS = ["<parameter=", '<parameter name="']
+    pos = 0
+    while True:
+        fopen = -1
+        fopen_tag = ""
+        for tag in FUNC_OPENS:
+            idx = raw.find(tag, pos)
+            if idx >= 0 and (fopen < 0 or idx < fopen):
+                fopen = idx
+                fopen_tag = tag
+        if fopen < 0:
+            break
+        fgt = raw.find(">", fopen)
+        if fgt < 0:
+            break
+        inner = raw[fopen + len(fopen_tag):fgt]
+        if fopen_tag == "<invoke ":
+            eq = inner.find("=")
+            name_seg = inner[eq + 1:].strip().strip('"').strip("'") if eq >= 0 else ""
+        else:
+            name_seg = inner.strip().strip('"').strip("'")
+        tool_name = resolve_tool_name(name_seg)
+        CLOSE_FUNC = "<" + "/invoke>" if fopen_tag == "<invoke " else "<" + "/function>"
+        fclose = raw.find(CLOSE_FUNC, fgt)
+        seg = raw[fgt + 1:fclose] if fclose >= 0 else raw[fgt + 1:]
+        pos = fclose + len(CLOSE_FUNC) if fclose >= 0 else len(raw)
+        params = {}
+        ppos = 0
+        while True:
+            popen = -1
+            popen_tag = ""
+            for ptag in PARAM_OPENS:
+                idx = seg.find(ptag, ppos)
+                if idx >= 0 and (popen < 0 or idx < popen):
+                    popen = idx
+                    popen_tag = ptag
+            if popen < 0:
+                break
+            pgt = seg.find(">", popen)
+            if pgt < 0:
+                break
+            pinner = seg[popen + len(popen_tag):pgt]
+            if popen_tag == '<parameter name="':
+                end_q = pinner.find(chr(34))
+                pname = pinner[:end_q] if end_q >= 0 else pinner
+            else:
+                pname = pinner.strip().strip('"').strip("'")
+            CLOSE_PARAM = "<" + "/parameter>"
+            pclose = seg.find(CLOSE_PARAM, pgt)
+            if pclose < 0:
+                break
+            pvalue = seg[pgt + 1:pclose]
+            ppos = pclose + len(CLOSE_PARAM)
+            if _ENTITY_RE.search(pvalue):
+                pvalue = html.unescape(pvalue)
+            s2 = pvalue.strip()
+            if s2:
+                try:
+                    pvalue = json.loads(s2)
+                except Exception:
+                    pass
+            params[pname] = pvalue
+        if tool_name == "shell" and not any(params.get(k) for k in _SHELL_COMMAND_KEYS):
+            logger.warning("[dsml] flat invoke %s skipped (no command)", name_seg)
+            continue
+        calls.append(DSMLToolCall(
+            id=f"flat_{seq}",
+            tool_name=tool_name,
+            arguments=params,
+            raw_name=name_seg,
+        ))
+        seq += 1
+    return calls
 
 
-@dataclass
 class DSMLToolCall:
     """从 DSML 块中解析出的一个工具调用。"""
 
@@ -354,20 +445,35 @@ def parse_dsml_block(raw: str, *, start_index: int = 0) -> list[DSMLToolCall]:
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _find_start(norm: str) -> tuple[int, int, str]:
-    """在归一化串中定位 DSML 起始标记。
+def _find_start(norm: str) -> tuple[int, int, str, str]:
+    """在归一化串中定位块起始标记。
 
     Returns:
-        ``(start_idx, tag_len, end_mark)``；``end_mark`` 为空串表示 B 式（行前缀）。
-        未找到返回 ``(-1, 0, "")``。
+        ``(start_idx, tag_len, end_mark, mode)``；mode in
+        ``"" | "block" | "lines" | "flat"``。``end_mark`` 为空串表示 B 式（行前缀）。
+        未找到返回 ``(-1, 0, "", "")``。
     """
     ia = norm.find(N_START_A)
     ib = norm.find(N_START_B)
-    if ia >= 0 and (ib < 0 or ia <= ib):
-        return ia, len(N_START_A), N_END_A
+    ic = norm.find(FLAT_OPEN_PREFIX)
+    id_ = norm.find(N_DSML_FLAT_START)
+
+    candidates: list[tuple[int, int, str, str]] = []
+    if ia >= 0:
+        candidates.append((ia, len(N_START_A), N_END_A, "block"))
     if ib >= 0:
-        return ib, len(N_START_B), ""
-    return -1, 0, ""
+        candidates.append((ib, len(N_START_B), "", "lines"))
+    if ic >= 0:
+        gt = norm.find(">", ic)
+        if gt >= 0 and gt - ic <= 30:
+            candidates.append((ic, gt + 1 - ic, N_FLAT_END, "flat"))
+    if id_ >= 0:
+        candidates.append((id_, len(N_DSML_FLAT_START), N_DSML_FLAT_END, "flat"))
+
+    if not candidates:
+        return -1, 0, "", ""
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0]
 
 
 def _line_mode_end(nblock: str) -> int:
@@ -394,14 +500,19 @@ def _line_mode_end(nblock: str) -> int:
     return -1
 
 
-_MAX_HOLD = max(len(N_START_A), len(N_START_B)) - 1
+_MAX_HOLD = max(
+    len(N_START_A), len(N_START_B), len(FLAT_OPEN_PREFIX),
+    len(N_DSML_FLAT_START),
+) - 1
 
 
 def _tail_hold(nbuf: str) -> int:
     """文本态需保留的尾部长：任何可能是起始标记前缀的后缀都不能吐出。"""
     for k in range(min(len(nbuf), _MAX_HOLD), 0, -1):
         suf = nbuf[-k:]
-        if N_START_A.startswith(suf) or N_START_B.startswith(suf):
+        if (N_START_A.startswith(suf) or N_START_B.startswith(suf)
+                or FLAT_OPEN_PREFIX.startswith(suf)
+                or N_DSML_FLAT_START.startswith(suf)):
             return k
     return 0
 
@@ -432,7 +543,7 @@ class DSMLStreamParser:
 
         self._buf = ""  # 文本态：待输出原文
         self._nbuf = ""  # 文本态：归一化副本（与 _buf 下标一一对应）
-        self._mode: str | None = None  # None | "block"(A式) | "lines"(B式)
+        self._mode: str | None = None  # None | "block"(A式) | "lines"(B式) | "flat"(伪XML)
         self._end_mark = ""
         self._block = ""
         self._nblock = ""
@@ -440,6 +551,7 @@ class DSMLStreamParser:
         self.blocks_seen = 0
         self.calls_emitted = 0
         self.overflowed = False
+        self._flat_blocks: list[str] = []  # 已闭合待 guard 决定是否解析的 flat 块
 
     # ── 对外 API ─────────────────────────────────────────────────
 
@@ -484,37 +596,43 @@ class DSMLStreamParser:
         if self._mode is not None:
             raw = self._block
             nraw = self._nblock
-            salvage = any(
-                _CLOSER_LINE_RE.match(
-                    _DSML_LINE_PREFIX_RE.sub("", _LEAD_DELIM_RE.sub("", ln)).strip()
+            cur_mode = self._mode
+            if cur_mode == "flat":
+                # flat 伪 XML 未闭合：直接丢弃（不完整调用不执行），
+                # 也不发 dsml_error —— 这类块本就只是模型"自言自语"的重复表述。
+                self._reset_block()
+            else:
+                salvage = any(
+                    _CLOSER_LINE_RE.match(
+                        _DSML_LINE_PREFIX_RE.sub("", _LEAD_DELIM_RE.sub("", ln)).strip()
+                    )
+                    for ln in nraw.replace(FW_PIPE, "|").split("\n")
                 )
-                for ln in nraw.replace(FW_PIPE, "|").split("\n")
-            )
-            self._reset_block()
-            if salvage:
-                try:
-                    calls = parse_dsml_block(raw, start_index=self._seq)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("[dsml] 补救解析异常: %s", exc)
-                    calls = []
-                if calls:
-                    self._seq += len(calls)
-                    self.calls_emitted += len(calls)
-                    events.append({
-                        "type": "tool_calls",
-                        "calls": [c.to_openai_tool_call() for c in calls],
-                        "source": "dsml",
-                    })
+                self._reset_block()
+                if salvage:
+                    try:
+                        calls = parse_dsml_block(raw, start_index=self._seq)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[dsml] 补救解析异常: %s", exc)
+                        calls = []
+                    if calls:
+                        self._seq += len(calls)
+                        self.calls_emitted += len(calls)
+                        events.append({
+                            "type": "tool_calls",
+                            "calls": [c.to_openai_tool_call() for c in calls],
+                            "source": "dsml",
+                        })
+                    else:
+                        events.append({
+                            "type": "dsml_error",
+                            "message": "模型输出了未闭合的工具调用标记（DSML），已忽略",
+                        })
                 else:
                     events.append({
                         "type": "dsml_error",
                         "message": "模型输出了未闭合的工具调用标记（DSML），已忽略",
                     })
-            else:
-                events.append({
-                    "type": "dsml_error",
-                    "message": "模型输出了未闭合的工具调用标记（DSML），已忽略",
-                })
 
         if self._buf:
             events.append({"type": "text", "delta": self._buf})
@@ -555,7 +673,7 @@ class DSMLStreamParser:
                 self._buf, self._nbuf = "", ""
             return False
 
-        si, taglen, end_mark = _find_start(self._nbuf)
+        si, taglen, end_mark, mode = _find_start(self._nbuf)
         if si < 0:
             hold = _tail_hold(self._nbuf)
             if hold:
@@ -574,7 +692,7 @@ class DSMLStreamParser:
         rest_raw = self._buf[si + taglen:]
         rest_norm = self._nbuf[si + taglen:]
         self._buf, self._nbuf = "", ""
-        self._mode = "block" if end_mark else "lines"
+        self._mode = mode
         self._end_mark = end_mark
         self._block, self._nblock = rest_raw, rest_norm
         return True
@@ -582,7 +700,7 @@ class DSMLStreamParser:
     def _pump_block(self, events: list[dict]) -> bool:
         """块态推进。返回 True 表示块已结束（切回文本态），需要继续 pump。"""
         if len(self._block) > self.max_block_chars:
-            logger.warning("[dsml] DSML 块超限(%d)，丢弃防溢出", len(self._block))
+            logger.warning("[dsml] 块超限(%d)，丢弃防溢出", len(self._block))
             self.overflowed = True
             self._reset_block()
             events.append({
@@ -592,7 +710,7 @@ class DSMLStreamParser:
             })
             return False
 
-        if self._mode == "block":
+        if self._mode in ("block", "flat"):
             ei = self._nblock.find(self._end_mark)
             if ei < 0:
                 return False  # 未闭合：留在 buffer 等后续 chunk
@@ -608,13 +726,21 @@ class DSMLStreamParser:
             end = ei
 
         rest_n = self._nblock[end:]
+        mode = self._mode
         self._reset_block()
         self._buf, self._nbuf = rest_raw, rest_n
-        self._handle_block(raw_block, events)
+        self._handle_block(raw_block, events, mode)
         return True
 
-    def _handle_block(self, raw_block: str, events: list[dict]) -> None:
+    def _handle_block(self, raw_block: str, events: list[dict], mode: str) -> None:
         self.blocks_seen += 1
+        if mode == "flat":
+            # 扁平伪 XML：先把 DSML 扁平前缀归一化（<||DSML||invoke -> <invoke），
+            # 再缓存；是否转成 tool_calls 事件由 dsml_guard 在 close() 时根据
+            # 「本轮是否已收到原生 tool_calls」决定 —— 防止与原生通道重复执行。
+            normalized = raw_block.replace("<||DSML||", "<").replace("</||DSML||", "</")
+            self._flat_blocks.append(normalized)
+            return
         try:
             calls = parse_dsml_block(raw_block, start_index=self._seq)
         except Exception as exc:  # noqa: BLE001
@@ -635,6 +761,12 @@ class DSMLStreamParser:
             "source": "dsml",
         })
 
+    def drain_flat_blocks(self) -> list[str]:
+        """取出并清空缓存的 flat 伪 XML 块（由 dsml_guard 在 close 后调用）。"""
+        blocks = self._flat_blocks
+        self._flat_blocks = []
+        return blocks
+
     def _force_flush(self, events: list[dict]) -> None:
         if self._buf:
             events.append({"type": "text", "delta": self._buf})
@@ -648,21 +780,22 @@ class DSMLStreamParser:
 
 
 def strip_dsml_text(text: str) -> str:
-    """移除文本中残留的 DSML 片段（含未闭合的尾部）。
+    """移除文本中残留的 DSML / 扁平伪 XML 片段（含未闭合的尾部）。
 
     用于把 assistant 文本落库前的二次防护：即便流式拦截漏过，也不会把
-    DSML 源码写进会话历史、再渲染到前端。
+    DSML / 伪 XML 源码写进会话历史、再渲染到前端。
     """
     if not text:
         return text
-    if FW_PIPE not in text and "DSML" not in text:
+    if (FW_PIPE not in text and "DSML" not in text
+            and FLAT_OPEN_PREFIX not in text):
         return text
 
     norm = text.replace(FW_PIPE, "|")
     out: list[str] = []
     i = 0
     while i < len(text):
-        si, taglen, end_mark = _find_start(norm[i:])
+        si, taglen, end_mark, mode = _find_start(norm[i:])
         if si < 0:
             out.append(text[i:])
             break

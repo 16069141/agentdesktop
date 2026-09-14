@@ -151,52 +151,6 @@ async def create_project(body: ProjectCreate, request: Request):
     return project
 
 
-@router.get("/{project_id:path}")
-async def get_project(project_id: str, request: Request):
-    project = await project_repo.get(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    user = _current_user(request)
-    if user != "local":
-        await _require(project_id, user, "viewer")
-    project = dict(project)
-    project["members"] = await project_member_repo.list(project_id)
-    project["tasks"] = await project_task_repo.list(project_id)
-    project["assets"] = await project_asset_repo.list(project_id)
-    return project
-
-
-@router.put("/{project_id:path}")
-async def update_project(project_id: str, body: ProjectUpdate, request: Request):
-    project = await project_repo.get(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    user = _current_user(request)
-    await _require(project_id, user, "admin")
-    fields: dict[str, Any] = {}
-    if body.name is not None:
-        fields["name"] = body.name
-    if body.description is not None:
-        fields["description"] = body.description
-    if body.status is not None:
-        fields["status"] = int(body.status)
-    if body.config_share is not None:
-        fields["config_share"] = body.config_share
-    updated = await project_repo.update(project_id, fields)
-    return updated
-
-
-@router.delete("/{project_id:path}")
-async def delete_project(project_id: str, request: Request):
-    project = await project_repo.get(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    user = _current_user(request)
-    await _require(project_id, user, "admin")
-    await project_repo.delete(project_id)
-    return {"ok": True}
-
-
 # ============ 成员 ============
 
 @router.get("/{project_id:path}/members")
@@ -449,3 +403,51 @@ async def shared_config(project_id: str, request: Request):
         all_tools = await tool_registry_repo.list_all()
         out["tools"] = [t for t in all_tools if t.get("enabled")]
     return out
+
+
+# ============ 项目（通配路由，必须在最后注册） ============
+
+@router.get("/{project_id:path}")
+async def get_project(project_id: str, request: Request):
+    project = await project_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    user = _current_user(request)
+    if user != "local":
+        await _require(project_id, user, "viewer")
+    project = dict(project)
+    project["members"] = await project_member_repo.list(project_id)
+    project["tasks"] = await project_task_repo.list(project_id)
+    project["assets"] = await project_asset_repo.list(project_id)
+    return project
+
+
+@router.put("/{project_id:path}")
+async def update_project(project_id: str, body: ProjectUpdate, request: Request):
+    project = await project_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    user = _current_user(request)
+    await _require(project_id, user, "admin")
+    fields: dict[str, Any] = {}
+    if body.name is not None:
+        fields["name"] = body.name
+    if body.description is not None:
+        fields["description"] = body.description
+    if body.status is not None:
+        fields["status"] = int(body.status)
+    if body.config_share is not None:
+        fields["config_share"] = body.config_share
+    updated = await project_repo.update(project_id, fields)
+    return updated
+
+
+@router.delete("/{project_id:path}")
+async def delete_project(project_id: str, request: Request):
+    project = await project_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    user = _current_user(request)
+    await _require(project_id, user, "admin")
+    await project_repo.delete(project_id)
+    return {"ok": True}

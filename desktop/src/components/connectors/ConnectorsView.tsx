@@ -80,6 +80,9 @@ const ConnectorsView: React.FC = () => {
   const DEFAULT_DB_FORM = {
     id: '', name: '', db_type: 'sqlite', dsn: '',
     pg_host: '127.0.0.1', pg_port: '5432', pg_user: '', pg_password: '', pg_dbname: '',
+    mysql_host: '127.0.0.1', mysql_port: '3306', mysql_user: '', mysql_password: '', mysql_dbname: '',
+    oracle_host: '127.0.0.1', oracle_port: '1521', oracle_user: '', oracle_password: '', oracle_service: '',
+    mssql_host: '127.0.0.1', mssql_port: '1433', mssql_user: '', mssql_password: '', mssql_dbname: '',
     enabled: true, max_rows: 100, timeout_sec: 10,
   }
   const [dbForm, setDbForm] = useState(DEFAULT_DB_FORM)
@@ -209,6 +212,25 @@ const ConnectorsView: React.FC = () => {
           return
         }
         form.dsn = `postgresql://${encodeURIComponent(form.pg_user)}:${encodeURIComponent(form.pg_password)}@${form.pg_host.trim()}:${Number(form.pg_port) || 5432}/${encodeURIComponent(form.pg_dbname.trim())}`
+      } else if (form.db_type === 'mysql' || form.db_type === 'starrocks') {
+        if (!form.mysql_host.trim() || !form.mysql_user.trim() || !form.mysql_dbname.trim()) {
+          setError(form.db_type === 'starrocks' ? 'StarRocks 需填写 主机 / 用户 / 数据库名' : 'MySQL 需填写 主机 / 用户 / 数据库名')
+          return
+        }
+        const defaultPort = form.db_type === 'starrocks' ? 9030 : 3306
+        form.dsn = `mysql://${encodeURIComponent(form.mysql_user)}:${encodeURIComponent(form.mysql_password)}@${form.mysql_host.trim()}:${Number(form.mysql_port) || defaultPort}/${encodeURIComponent(form.mysql_dbname.trim())}`
+      } else if (form.db_type === 'oracle') {
+        if (!form.oracle_host.trim() || !form.oracle_user.trim() || !form.oracle_service.trim()) {
+          setError('Oracle 需填写 主机 / 用户 / 服务名')
+          return
+        }
+        form.dsn = `oracle://${encodeURIComponent(form.oracle_user)}:${encodeURIComponent(form.oracle_password)}@${form.oracle_host.trim()}:${Number(form.oracle_port) || 1521}/${encodeURIComponent(form.oracle_service.trim())}`
+      } else if (form.db_type === 'sqlserver') {
+        if (!form.mssql_host.trim() || !form.mssql_user.trim() || !form.mssql_dbname.trim()) {
+          setError('SQL Server 需填写 主机 / 用户 / 数据库名')
+          return
+        }
+        form.dsn = `mssql://${encodeURIComponent(form.mssql_user)}:${encodeURIComponent(form.mssql_password)}@${form.mssql_host.trim()}:${Number(form.mssql_port) || 1433}/${encodeURIComponent(form.mssql_dbname.trim())}`
       }
       if (editingDbId) {
         // 编辑模式：仅更新可改字段，id 不可变
@@ -242,18 +264,36 @@ const ConnectorsView: React.FC = () => {
       max_rows: d.maxRows,
       timeout_sec: d.timeoutSec,
     }
-    // 从 DSN 解析 PostgreSQL 各字段（密码回填，便于直接保存）
-    if (d.dbType === 'postgres') {
-      try {
-        const u = new URL(d.dsn)
+    // 从 DSN 解析各数据库字段（密码回填，便于直接保存）
+    try {
+      const u = new URL(d.dsn)
+      if (d.dbType === 'postgres') {
         prefill.pg_host = u.hostname
         prefill.pg_port = u.port || '5432'
         prefill.pg_user = decodeURIComponent(u.username)
         prefill.pg_password = decodeURIComponent(u.password)
         prefill.pg_dbname = decodeURIComponent(u.pathname.slice(1))
-      } catch {
-        // DSN 解析失败则留空，由用户手动填
+      } else if (d.dbType === 'mysql' || d.dbType === 'starrocks') {
+        prefill.mysql_host = u.hostname
+        prefill.mysql_port = u.port || (d.dbType === 'starrocks' ? '9030' : '3306')
+        prefill.mysql_user = decodeURIComponent(u.username)
+        prefill.mysql_password = decodeURIComponent(u.password)
+        prefill.mysql_dbname = decodeURIComponent(u.pathname.slice(1))
+      } else if (d.dbType === 'oracle') {
+        prefill.oracle_host = u.hostname
+        prefill.oracle_port = u.port || '1521'
+        prefill.oracle_user = decodeURIComponent(u.username)
+        prefill.oracle_password = decodeURIComponent(u.password)
+        prefill.oracle_service = decodeURIComponent(u.pathname.slice(1))
+      } else if (d.dbType === 'sqlserver') {
+        prefill.mssql_host = u.hostname
+        prefill.mssql_port = u.port || '1433'
+        prefill.mssql_user = decodeURIComponent(u.username)
+        prefill.mssql_password = decodeURIComponent(u.password)
+        prefill.mssql_dbname = decodeURIComponent(u.pathname.slice(1))
       }
+    } catch {
+      // DSN 解析失败则留空，由用户手动填
     }
     setDbForm(prefill)
     setShowDbForm(true)
@@ -276,14 +316,19 @@ const ConnectorsView: React.FC = () => {
     }
   }
   const queryDb = async (d: DbConnItem) => {
-    const defSql = d.dbType === 'postgres'
-      ? 'SELECT tablename FROM pg_tables WHERE schemaname=current_schema() LIMIT 10'
-      : 'SELECT * FROM sqlite_master LIMIT 10'
+    const defSql: Record<string, string> = {
+      postgres: 'SELECT tablename FROM pg_tables WHERE schemaname=current_schema() LIMIT 10',
+      sqlite: 'SELECT * FROM sqlite_master LIMIT 10',
+      mysql: 'SHOW TABLES LIMIT 10',
+      starrocks: 'SHOW TABLES LIMIT 10',
+      oracle: 'SELECT table_name FROM user_tables WHERE ROWNUM <= 10',
+      sqlserver: 'SELECT TOP 10 table_name FROM information_schema.tables',
+    }
     setDbQuery((p) => ({
       ...p,
       [d.id]: p[d.id]
         ? { ...p[d.id], open: !p[d.id].open }
-        : { open: true, sql: defSql, res: null, loading: false },
+        : { open: true, sql: defSql[d.dbType] || defSql.sqlite, res: null, loading: false },
     }))
   }
   const runQuery = async (d: DbConnItem) => {
@@ -534,7 +579,7 @@ const ConnectorsView: React.FC = () => {
         <div>
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm" style={{ color: 'var(--text-dim)' }}>
-              SQLite 文件级只读（mode=ro）· PostgreSQL 只读事务 · 语句级只读校验（SELECT/WITH/EXPLAIN）· 写操作一律拒绝
+              SQLite 文件级只读（mode=ro）· PostgreSQL / MySQL / Oracle / SQL Server 已可配置 · 语句级只读校验（SELECT/WITH/EXPLAIN）· 写操作一律拒绝
             </div>
             <button
               className="px-3 py-1.5 rounded-lg text-sm"
@@ -557,6 +602,10 @@ const ConnectorsView: React.FC = () => {
                 >
                   <option value="sqlite">SQLite</option>
                   <option value="postgres">PostgreSQL</option>
+                  <option value="mysql">MySQL</option>
+                  <option value="starrocks">StarRocks</option>
+                  <option value="oracle">Oracle</option>
+                  <option value="sqlserver">SQL Server</option>
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -606,6 +655,108 @@ const ConnectorsView: React.FC = () => {
                       onChange={(e) => setDbForm({ ...dbForm, pg_dbname: e.target.value })}
                     />
                   </>
+                ) : dbForm.db_type === 'mysql' || dbForm.db_type === 'starrocks' ? (
+                  <>
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="主机（如 127.0.0.1）" value={dbForm.mysql_host}
+                      onChange={(e) => setDbForm({ ...dbForm, mysql_host: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder={dbForm.db_type === 'starrocks' ? '端口（默认 9030）' : '端口（默认 3306）'} value={dbForm.mysql_port}
+                      onChange={(e) => setDbForm({ ...dbForm, mysql_port: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="用户名（如 root）" value={dbForm.mysql_user}
+                      onChange={(e) => setDbForm({ ...dbForm, mysql_user: e.target.value })}
+                    />
+                    <input
+                      type="password"
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="密码" value={dbForm.mysql_password}
+                      onChange={(e) => setDbForm({ ...dbForm, mysql_password: e.target.value })}
+                    />
+                    <input
+                      className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="数据库名（如 price_library）" value={dbForm.mysql_dbname}
+                      onChange={(e) => setDbForm({ ...dbForm, mysql_dbname: e.target.value })}
+                    />
+                  </>
+                ) : dbForm.db_type === 'oracle' ? (
+                  <>
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="主机（如 127.0.0.1）" value={dbForm.oracle_host}
+                      onChange={(e) => setDbForm({ ...dbForm, oracle_host: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="端口（默认 1521）" value={dbForm.oracle_port}
+                      onChange={(e) => setDbForm({ ...dbForm, oracle_port: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="用户名（如 system）" value={dbForm.oracle_user}
+                      onChange={(e) => setDbForm({ ...dbForm, oracle_user: e.target.value })}
+                    />
+                    <input
+                      type="password"
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="密码" value={dbForm.oracle_password}
+                      onChange={(e) => setDbForm({ ...dbForm, oracle_password: e.target.value })}
+                    />
+                    <input
+                      className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="服务名（Service Name，如 ORCLPDB1）" value={dbForm.oracle_service}
+                      onChange={(e) => setDbForm({ ...dbForm, oracle_service: e.target.value })}
+                    />
+                  </>
+                ) : dbForm.db_type === 'sqlserver' ? (
+                  <>
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="主机（如 127.0.0.1）" value={dbForm.mssql_host}
+                      onChange={(e) => setDbForm({ ...dbForm, mssql_host: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="端口（默认 1433）" value={dbForm.mssql_port}
+                      onChange={(e) => setDbForm({ ...dbForm, mssql_port: e.target.value })}
+                    />
+                    <input
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="用户名（如 sa）" value={dbForm.mssql_user}
+                      onChange={(e) => setDbForm({ ...dbForm, mssql_user: e.target.value })}
+                    />
+                    <input
+                      type="password"
+                      className="text-sm rounded-lg px-2.5 py-1.5 outline-none"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="密码" value={dbForm.mssql_password}
+                      onChange={(e) => setDbForm({ ...dbForm, mssql_password: e.target.value })}
+                    />
+                    <input
+                      className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
+                      style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                      placeholder="数据库名（如 price_library）" value={dbForm.mssql_dbname}
+                      onChange={(e) => setDbForm({ ...dbForm, mssql_dbname: e.target.value })}
+                    />
+                  </>
                 ) : (
                   <input
                     className="col-span-2 text-sm rounded-lg px-2.5 py-1.5 outline-none font-mono"
@@ -646,7 +797,7 @@ const ConnectorsView: React.FC = () => {
             <div className="rounded-xl p-8 text-center text-sm" style={{ background: 'var(--bg-panel)', border: '1px dashed var(--border)' }}>
               <div style={{ color: 'var(--text-dim)' }}>尚未配置数据库只读连接</div>
               <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
-                已实现 SQLite / PostgreSQL 只读直连；MySQL 适配器预留，后续版本接入
+                已实现 SQLite / PostgreSQL 只读直连；MySQL / Oracle / SQL Server 已可配置，驱动接入后即可生效
               </div>
             </div>
           ) : (

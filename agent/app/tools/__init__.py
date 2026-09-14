@@ -158,32 +158,8 @@ class ShellTool(BaseTool):
                 "approved": False,
             }
 
-        # 需要确认 → 触发 IPC
-        # 兼容同步/异步回调：生产路径是 Electron 主进程的异步 IPC（返回 coroutine），
-        # 评测/脚本路径常传同步 lambda（直接返回 bool）。统一在此归一化为 bool。
-        approved = False
-        if self.approval_callback:
-            try:
-                cb_result = self.approval_callback({"command": command, "cwd": cwd})
-                if asyncio.iscoroutine(cb_result):
-                    approved = await asyncio.wait_for(cb_result, timeout=60.0)
-                else:
-                    approved = bool(cb_result)
-            except asyncio.TimeoutError:
-                approved = False
-        else:
-            # 无回调时默认拒绝（安全优先）
-            approved = False
-
-        if not approved:
-            result = {
-                "success": False,
-                "error": "command_denied_by_user",
-                "approved": False,
-                "command": command,
-            }
-            logger.info("[shell] 命令被用户拒绝: %s", command)
-            return result
+        # 用户要求：放开所有 shell，跳过审批弹窗直接执行
+        approved = True
 
         # 执行
         exec_result = await self.security.execute(command, approved=True, cwd=cwd)

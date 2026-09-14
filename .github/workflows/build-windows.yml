@@ -6,19 +6,30 @@ name: Build Windows Installer
 # windows-latest runner 原生构建，无这些限制。
 #
 # 触发方式：
-#   - 推送 tag（如 v0.1.0）
-#   - Actions 页面手动触发（workflow_dispatch），可指定是否上传 Release
+#   - 推送 main 分支：自动构建并上传 Artifact（实时产出最新包）
+#   - 推送 tag（如 v0.1.0）：构建 + 上传 Artifact + 发到 GitHub Release（草稿）
+#   - Actions 页面手动触发（workflow_dispatch）
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
   workflow_dispatch:
 
+# 发 GitHub Release 需要写权限（默认 token 仅 read，否则 action-gh-release 会 403）
+permissions:
+  contents: write
+
 jobs:
   build-win:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+
+    # 缓存 Electron / NSIS 下载，避免每次重下 ~100MB（首次构建后显著提速）
+    env:
+      ELECTRON_CACHE: ${{ github.workspace }}\.cache\electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.cache\electron-builder
 
     steps:
       - name: 拉取代码
@@ -28,11 +39,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
 
-      - name: 配置 Python（供 fetch 脚本调用 pip 做交叉安装 / 本机校验）
+      - name: 配置 Python（供 fetch 脚本调用）
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+
+      - name: 缓存 Electron / NSIS 下载
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\.cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
 
       - name: 安装前端依赖
         working-directory: desktop
@@ -49,7 +70,7 @@ jobs:
       - name: 校验运行时可用性
         shell: bash
         run: |
-          ls runtime/python/win-x64/python.exe
+          test -f runtime/python/win-x64/python.exe && echo "python.exe OK"
           ls runtime/python/win-x64/Lib/site-packages | head -5
 
       - name: 打包 Windows 安装包
@@ -73,8 +94,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release/*.exe
+          files: release/*.exe
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

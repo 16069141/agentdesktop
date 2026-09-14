@@ -2,7 +2,8 @@
 
 已实现：SQLite（`mode=ro` URI 文件级只读 + SQL 语句级只读校验双重防护）
         PostgreSQL（连接级 `default_transaction_read_only=on` + 语句级只读校验双重防护）
-预留：MySQL（无驱动依赖，返回「适配器待接入」明确提示）
+已配置：MySQL / Oracle / SQL Server（DSN 拼装 + 类型注册已就绪，驱动接入后即可生效；
+        当前测试/查询返回「适配器待接入」明确提示）
 
 只读校验规则（代码层二次防线，即使连接串被误配了写权限也不放行）：
 - 单语句（禁止分号拼接多语句）
@@ -111,7 +112,8 @@ async def test_sqlite(dsn: str, timeout_sec: int = 10) -> Dict[str, Any]:
 
 
 async def query_db(conn: Dict[str, Any], sql: str) -> Dict[str, Any]:
-    """按 db_connectors 配置分发查询（已实现 sqlite / postgres，mysql 预留）。"""
+    """按 db_connectors 配置分发查询（sqlite / postgres / mysql / starrocks 已实现；
+    oracle / sqlserver 占位）。"""
     db_type = conn.get("dbType", "sqlite")
     if db_type == "postgres":
         return await query_postgres(
@@ -119,15 +121,19 @@ async def query_db(conn: Dict[str, Any], sql: str) -> Dict[str, Any]:
             max_rows=conn.get("maxRows", 100),
             timeout_sec=conn.get("timeoutSec", 10),
         )
-    if db_type != "sqlite":
-        return {"success": False,
-                "error": f"{db_type} 适配器待接入（已实现 SQLite / PostgreSQL 只读直连；"
-                         f"{db_type} 请在后续版本接入）"}
-    return await query_sqlite(
-        conn["dsn"], sql,
-        max_rows=conn.get("maxRows", 100),
-        timeout_sec=conn.get("timeoutSec", 10),
-    )
+    if db_type == "sqlite":
+        return await query_sqlite(
+            conn["dsn"], sql,
+            max_rows=conn.get("maxRows", 100),
+            timeout_sec=conn.get("timeoutSec", 10),
+        )
+    if db_type in ("mysql", "starrocks"):
+        return await query_mysql(
+            conn["dsn"], sql,
+            max_rows=conn.get("maxRows", 100),
+            timeout_sec=conn.get("timeoutSec", 10),
+        )
+    return _reserved_adapter_error(db_type)
 
 
 # ============ PostgreSQL 只读直连 ============
@@ -298,3 +304,169 @@ async def query_postgres(dsn: str, sql: str, max_rows: int = 100,
                 "latency_ms": int((time.monotonic() - t0) * 1000)}
     finally:
         await conn.close()
+
+
+# ============ MySQL / StarRocks（MySQL 协议兼容）只读直连 ============
+
+_RESERVED_ADAPTER_MSG = {
+    "oracle": "Oracle 适配器待接入（需安装 oraclenext / cx_Oracle 驱动）",
+    "sqlserver": "SQL Server 适配器待接入（需安装 pyodbc / aioodbc 驱动）",
+}
+
+
+def _reserved_adapter_error(db_type: str) -> Dict[str, Any]:
+    return {"success": False, "error": _RESERVED_ADAPTER_MSG.get(db_type, f"{db_type} 适配器待接入")}
+
+
+def _reserved_test_error(db_type: str) -> Dict[str, Any]:
+    return {"ok": False, "error": _RESERVED_ADAPTER_MSG.get(db_type, f"{db_type} 适配器待接入")}
+
+
+def build_mysql_dsn(host: str, port: int | str, user: str, password: str, dbname: str) -> str:
+    """按表单字段拼装 MySQL/StarRocks 连接串（URL 编码特殊字符）。"""
+    port = int(port) if port else 3306
+    return (
+        f"mysql://{quote_plus(user)}:{quote_plus(password)}"
+        f"@{host or '127.0.0.1'}:{port}/{quote_plus(dbname)}"
+    )
+
+
+def build_starrocks_dsn(host: str, port: int | str, user: str, password: str, dbname: str) -> str:
+    """StarRocks FE 查询端口默认 9030（MySQL 协议）。"""
+    port = int(port) if port else 9030
+    return (
+        f"mysql://{quote_plus(user)}:{quote_plus(password)}"
+        f"@{host or '127.0.0.1'}:{port}/{quote_plus(dbname)}"
+    )
+
+
+def _parse_mysql_dsn(dsn: str) -> Dict[str, Any]:
+    """mysql://user:pass@host:port/dbname → 连接参数。"""
+    from urllib.parse import urlparse
+    p = urlparse(dsn)
+    return {
+        "host": p.hostname or "127.0.0.1",
+        "port": p.port or 3306,
+        "user": unquote(p.username or ""),
+        "password": unquote(p.password or ""),
+        "db": (p.path or "/").lstrip("/"),
+    }
+
+
+async def query_mysql(dsn: str, sql: str, max_rows: int = 100,
+                      timeout_sec: int = 10) -> Dict[str, Any]:
+    """对 MySQL / StarRocks 执行只读查询（aiomysql 异步驱动）。
+
+    双重防护：SQL 语句级只读校验；连接上设 read_only=1（如服务端支持），
+    StarRocks/MySQL 5.6.5+ 支持 SESSION read_only。
+    """
+    clean = validate_read_only_sql(sql)
+    params = _parse_mysql_dsn(dsn)
+    t0 = time.monotonic()
+    try:
+        import aiomysql
+        conn = await aiomysql.connect(
+            host=params["host"], port=params["port"],
+            user=params["user"], password=params["password"],
+            db=params["db"], connect_timeout=max(1, int(timeout_sec)),
+            autocommit=True,
+        )
+    except Exception as exc:
+        return {"success": False, "error": f"连接数据库失败: {exc}"}
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            try:
+                await cur.execute("SET SESSION read_only = 1")
+            except Exception:
+                pass  # StarRocks 部分版本不支持，忽略
+            try:
+                await cur.execute(
+                    f"SET SESSION max_execution_time = {max(1, int(timeout_sec) * 1000)}"
+                )
+            except Exception:
+                pass
+            await cur.execute(clean)
+            rows = await cur.fetchmany(max_rows + 1)
+            cols = [d[0] for d in cur.description] if cur.description else []
+            truncated = len(rows) > max_rows
+            data = _json_safe_rows(rows[:max_rows])
+        return _cap_result_size({
+            "success": True,
+            "columns": cols,
+            "rows": data,
+            "count": len(data),
+            "truncated": truncated,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+        })
+    except Exception as exc:
+        return {"success": False, "error": f"查询失败: {exc}",
+                "latency_ms": int((time.monotonic() - t0) * 1000)}
+    finally:
+        conn.close()
+        await conn.wait_closed()
+
+
+def build_oracle_dsn(host: str, port: int | str, user: str, password: str, service: str) -> str:
+    """按表单字段拼装 Oracle 连接串（URL 编码特殊字符，使用 service name 模式）。"""
+    port = int(port) if port else 1521
+    return (
+        f"oracle://{quote_plus(user)}:{quote_plus(password)}"
+        f"@{host or '127.0.0.1'}:{port}/{quote_plus(service)}"
+    )
+
+
+def build_sqlserver_dsn(host: str, port: int | str, user: str, password: str, dbname: str) -> str:
+    """按表单字段拼装 SQL Server 连接串（URL 编码特殊字符）。"""
+    port = int(port) if port else 1433
+    return (
+        f"mssql://{quote_plus(user)}:{quote_plus(password)}"
+        f"@{host or '127.0.0.1'}:{port}/{quote_plus(dbname)}"
+    )
+
+
+async def test_mysql(dsn: str, timeout_sec: int = 10) -> Dict[str, Any]:
+    """MySQL / StarRocks 连通性测试：执行 SELECT VERSION()。"""
+    try:
+        params = _parse_mysql_dsn(dsn)
+        import aiomysql
+        conn = await aiomysql.connect(
+            host=params["host"], port=params["port"],
+            user=params["user"], password=params["password"],
+            db=params["db"], connect_timeout=max(1, int(timeout_sec)),
+        )
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT VERSION()")
+                row = await cur.fetchone()
+                ver = row[0] if row else "unknown"
+            return {"ok": True, "version": str(ver)}
+        finally:
+            conn.close()
+            await conn.wait_closed()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+async def test_oracle(dsn: str, timeout_sec: int = 10) -> Dict[str, Any]:
+    """Oracle 连通性测试占位：驱动待接入。"""
+    return _reserved_test_error("oracle")
+
+
+async def test_sqlserver(dsn: str, timeout_sec: int = 10) -> Dict[str, Any]:
+    """SQL Server 连通性测试占位：驱动待接入。"""
+    return _reserved_test_error("sqlserver")
+
+
+async def test_db(dsn: str, db_type: str, timeout_sec: int = 10) -> Dict[str, Any]:
+    """按 db_type 分发连通性测试。"""
+    if db_type == "postgres":
+        return await test_postgres(dsn, timeout_sec=timeout_sec)
+    if db_type == "sqlite":
+        return await test_sqlite(dsn, timeout_sec=timeout_sec)
+    if db_type in ("mysql", "starrocks"):
+        return await test_mysql(dsn, timeout_sec=timeout_sec)
+    if db_type == "oracle":
+        return await test_oracle(dsn, timeout_sec=timeout_sec)
+    if db_type == "sqlserver":
+        return await test_sqlserver(dsn, timeout_sec=timeout_sec)
+    return _reserved_test_error(db_type)

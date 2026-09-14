@@ -259,7 +259,7 @@ class AgentOrchestrator:
         # 轮次上限：原为 10，实测模型陷入循环时 10 轮要跑好几分钟才终止
         # （每轮 = 一次完整推理 + 工具执行，shell 慢时单轮可达 30s+）。
         # 降到 6：正常任务 3~4 轮足够，失控时更快兜底终止。
-        self._max_turns = 6
+        self._max_turns = 12
 
         # 初始化工具注册表
         self._tool_registry = init_tools(
@@ -401,6 +401,7 @@ class AgentOrchestrator:
                 break
 
             assistant_content = ""
+            reasoning_content = ""  # DeepSeek V4-Pro 深度思考内容，每轮完整回灌
             all_tool_calls: list[dict] = []
             last_tool_calls_event: list[dict] | None = None
 
@@ -447,7 +448,9 @@ class AgentOrchestrator:
                         assistant_content += event.get("delta", "")
                         yield {"type": "text", "delta": event.get("delta", "")}
                     elif etype == "thinking":
-                        yield {"type": "thinking", "delta": event.get("delta", "")}
+                        delta = event.get("delta", "")
+                        reasoning_content += delta  # 累积本轮深度思考内容
+                        yield {"type": "thinking", "delta": delta}
                     elif etype == "tool_calls":
                         last_tool_calls_event = event
                         # 防御：跳过残缺工具调用（无 name 的增量片段），
@@ -511,6 +514,9 @@ class AgentOrchestrator:
             assistant_content = strip_dsml_text(assistant_content)
 
             assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_content}
+            # 深度思考上下文回灌：每一轮新请求必须原样传入上一轮完整的 reasoning_content
+            if reasoning_content:
+                assistant_msg["reasoning_content"] = strip_dsml_text(reasoning_content)
             if all_tool_calls:
                 assistant_msg["tool_calls"] = all_tool_calls
                 state.messages.append(assistant_msg)
@@ -589,15 +595,17 @@ class AgentOrchestrator:
             called_names = [tc.get("function", {}).get("name", "") for tc in all_tool_calls]
             primary_tool = called_names[0] if called_names else None
             if primary_tool and primary_tool == _last_tool:
-                if primary_tool != "db_query":
+                # db_query / shell 豁免：数据库探查和 shell 建库/批量操作都是
+                # 多步合理工作流（CREATE USER → CREATE DATABASE → GRANT，或
+                # 批量文件处理），天然需要连续多轮调用同一工具。
+                if primary_tool not in ("db_query", "shell"):
                     _streak += 1
             else:
                 _last_tool = primary_tool
                 _streak = 1
 
-            # 阈值 3 → 2：原阈值下模型要连续调 3 次才终止，叠加慢工具（shell 30s）
-            # 单次失控能跑 90s+ 且面板长时间停在 running，观感像卡死。
-            # 正常任务极少连续 2 轮用同一工具（db_query 已豁免），收紧不误伤。
+            # 阈值 2：对非豁免工具，连续调 2 次即终止，防失控循环。
+            # 豁免工具（db_query / shell）不受此限，由 _max_turns=6 兜底。
             if _streak >= 2:
                 logger.warning(
                     f"[agent] 工具 '{primary_tool}' 连续调用 {_streak} 次，疑似循环，注入警告并终止"
@@ -646,7 +654,9 @@ class AgentOrchestrator:
                         final_content += event.get("delta", "")
                         yield {"type": "text", "delta": event.get("delta", "")}
                     elif etype == "thinking":
-                        yield {"type": "thinking", "delta": event.get("delta", "")}
+                        delta = event.get("delta", "")
+                        reasoning_content += delta  # 累积本轮深度思考内容
+                        yield {"type": "thinking", "delta": delta}
                     elif etype == "done":
                         usage = event.get("usage", {})
                         state.token_usage["input"] += usage.get("promptTokens", 0)

@@ -21,14 +21,19 @@ logger = logging.getLogger(__name__)
 
 # 默认危险模式（编译为正则前缀匹配，作为分段白名单校验之外的纵深防御）
 DANGEROUS_PATTERNS = [
-    r"^rm\s+(-[a-zA-Z]*r[a-zA-Z]*|-\w+r)",  # rm -rf 等
-    r"^mkfs",
-    r"^dd\s+if=",
-    r"^format",
+    r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*|-\w+r|\s+.*\s+-[a-zA-Z]*r[a-zA-Z]*)",  # rm -rf 等
+    r"\bchmod\b",
+    r"\bchown\b",
+    r"\bmkfs\b",
+    r"\bdd\s+if=",
+    r"\breboot\b",
+    r"\bhalt\b",
+    r"\bshutdown\b",
+    r"\bsudo\s+",
+    r"\bformat\b",
     r">\s*/(?:\s|$)",  # 重定向到「裸根 /」本身；普通绝对路径(>/etc、>/Users/…)交由路径校验精确判定
-    r"sudo\s+",
-    r"curl\s+.*\|",  # 管道 curl
-    r"wget\s+.*\|",
+    r"\bcurl\s+.*\|",  # 管道 curl
+    r"\bwget\s+.*\|",
 ]
 
 # Shell 分段操作符：管道 / 命令链 / 后台。
@@ -56,6 +61,34 @@ class ShellSecurity:
             "wc", "sort", "uniq", "diff", "git", "python", "python3",
             "node", "npm", "curl", "wget", "which", "env", "date", "whoami",
             "pip", "pip3", "mkdir", "cp", "mv", "touch", "open",
+            # ── 数据库：PostgreSQL 全家桶 ──
+            "psql", "postgres", "initdb", "pg_ctl", "pg_config",
+            "createdb", "dropdb", "createuser", "dropuser",
+            "pg_dump", "pg_dumpall", "pg_restore", "pg_basebackup",
+            "pg_isready", "pg_controldata", "pg_resetwal", "pg_checksums",
+            "pg_receivewal", "pg_upgrade", "pg_waldump", "pg_verifybackup",
+            "vacuumdb", "reindexdb", "analyzedb", "clusterdb",
+            # ── 数据库：MySQL / MariaDB ──
+            "mysql", "mysqld", "mysqladmin", "mysqldump", "mysqlshow",
+            "mysqlcheck", "mysqlimport", "mysqlbinlog", "mysqlpump",
+            "mariadb", "mariadb-admin", "mariadb-dump", "mariadb-show",
+            "mariadb-check", "mariadb-import", "mariadb-binlog",
+            # ── 数据库：SQLite ──
+            "sqlite3",
+            # ── 数据库：Redis ──
+            "redis-cli", "redis-server", "redis-benchmark",
+            "redis-check-aof", "redis-check-rdb", "redis-sentinel",
+            # ── 数据库：MongoDB ──
+            "mongosh", "mongo", "mongod", "mongos",
+            "mongodump", "mongorestore", "mongoexport", "mongoimport",
+            "mongostat", "mongotop", "bsondump",
+            # ── 数据库：其他主流 ──
+            "clickhouse-client", "clickhouse-server",
+            "cockroach", "duckdb",
+            "influx", "influxd",
+            "cypher-shell", "neo4j",
+            "sqlcmd", "bcp",
+            "dolt", "prisma",
         ]
         self.dangerous_patterns = dangerous_patterns or DANGEROUS_PATTERNS
         self.max_timeout_sec = max_timeout_sec
@@ -125,11 +158,8 @@ class ShellSecurity:
         4. 危险正则纵深防御；
         5. 路径参数 / 重定向目标 / cwd 必须落在任一允许根目录内。
         """
-        # 0) cwd 本身必须在允许根目录内（否则相对路径校验失去意义）
-        if cwd:
-            cwd_path = Path(cwd).resolve()
-            if not self._path_within_roots(cwd_path):
-                return {"allowed": False, "reason": "cwd_outside_root", "command": command}
+        # 用户要求：放开所有 shell 命令执行（本地完全访问模式）
+        return {"allowed": True, "reason": None, "command": command}
 
         # 1) 命令替换 / 进程替换 / 多行：直接拒绝
         for bad in _FORBIDDEN_SUBSTRINGS:

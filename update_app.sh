@@ -7,7 +7,12 @@
 set -u
 
 SRC="/Users/caojian/Desktop/agent/workdesktop/v2/desktop"
-ASAR="/Users/caojian/.workbuddy/binaries/node/versions/22.22.2-2/bin/asar"
+# 优先使用项目本地 node_modules 中的 asar；不存在时尝试 npx 兜底
+if [ -x "$SRC/node_modules/.bin/asar" ]; then
+  ASAR="$SRC/node_modules/.bin/asar"
+else
+  ASAR="npx asar"
+fi
 EXTRACT="$HOME/Desktop/app_extract"
 
 # 自动找最新安装的 App（兼容旧名「私有域AI助手.app」与新名「颤翎子AI助手.app」）

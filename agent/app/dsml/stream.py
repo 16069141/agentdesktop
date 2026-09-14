@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator
 
-from .parser import DSMLStreamParser
+from .parser import DSMLStreamParser, parse_flat_block
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +35,48 @@ async def dsml_guard(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
 
     - 正文 delta 先过 DSMLStreamParser：DSML 块被剥离，翻译成标准
       ``tool_calls`` 事件，交给既有 ToolNode 执行并推 SSE tool 事件；
+    - 扁平伪 XML 块（``<tool_call><function=...>...</tool_call>``，agnes / MiniMax
+      等模型的 ReAct 文本协议）只从 text 通道剥离；仅当本轮**未**收到原生
+      ``tool_calls`` 事件时，才把缓存的 flat 块解析成 tool_calls 发出 ——
+      避免与原生通道双重执行；
     - 收到 done / error 前先冲刷解析器 —— 编排层遇 ``done`` 即 break，
       晚于 done 到达的工具调用会被整体丢弃，必须抢在前面下发；
     - 流结束时再冲刷一次，处理未闭合块的补救解析。
     """
     parser = DSMLStreamParser()
+    native_tool_calls_seen = False
+
+    async def _drain_flat_as_tool_calls() -> AsyncIterator[dict]:
+        if native_tool_calls_seen:
+            return
+        for block in parser.drain_flat_blocks():
+            calls = parse_flat_block(block, start_index=parser._seq)
+            if calls:
+                parser._seq += len(calls)
+                parser.calls_emitted += len(calls)
+                yield {
+                    "type": "tool_calls",
+                    "calls": [c.to_openai_tool_call() for c in calls],
+                    "source": "flat",
+                }
+
     async for ev in events:
         etype = ev.get("type")
         if etype == "text":
             for out in parser.feed(ev.get("delta", "")):
                 yield normalize_dsml_event(out)
+        elif etype == "tool_calls":
+            native_tool_calls_seen = True
+            yield ev
         elif etype in ("done", "error"):
             for out in parser.close():
                 yield normalize_dsml_event(out)
+            async for ev2 in _drain_flat_as_tool_calls():
+                yield ev2
             yield ev
         else:
             yield ev
     for out in parser.close():
         yield normalize_dsml_event(out)
+    async for ev2 in _drain_flat_as_tool_calls():
+        yield ev2

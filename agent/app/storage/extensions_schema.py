@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS connector_configs (
 CREATE TABLE IF NOT EXISTS db_connectors (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
-    db_type     TEXT NOT NULL DEFAULT 'sqlite',    -- sqlite（已实现）/ postgres / mysql（预留）
+    db_type     TEXT NOT NULL DEFAULT 'sqlite',    -- sqlite / postgres（已实现）；mysql / oracle / sqlserver（已配置，驱动待接入）
     dsn         TEXT NOT NULL,                     -- SQLite 文件路径 或 连接串
     enabled     INTEGER DEFAULT 1,
     max_rows    INTEGER DEFAULT 100,
