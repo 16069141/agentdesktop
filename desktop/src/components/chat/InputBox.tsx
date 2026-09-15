@@ -104,6 +104,60 @@ const InputBox: React.FC<InputBoxProps> = ({
   /** 取消上传：id → abort 函数 */
   const abortMapRef = useRef<Record<number, () => void>>({})
 
+  // ── P0.6 语音输入：录音 → 转写 → 填入输入框 ──
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  const toggleRecord = async () => {
+    if (transcribing || disabled) return
+    // 停止录音 → 转写
+    if (recording) {
+      try {
+        mediaRecorderRef.current?.stop()
+      } catch {
+        setRecording(false)
+      }
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      chunksRef.current = []
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
+      }
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        setRecording(false)
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' })
+        if (blob.size === 0) return
+        setTranscribing(true)
+        try {
+          const res = await api.speech.transcribe(blob)
+          const text = (res?.text || '').trim()
+          if (text) {
+            setInput((prev) => (prev ? prev + text : text))
+            showToast('已转写，可修改后发送')
+          } else {
+            showToast('未识别到语音内容')
+          }
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : '语音转写失败')
+        } finally {
+          setTranscribing(false)
+        }
+      }
+      mr.start()
+      mediaRecorderRef.current = mr
+      setRecording(true)
+    } catch (err) {
+      const msg = '无法访问麦克风，请在系统设置中允许颤翎子使用麦克风'
+      showToast(msg)
+    }
+  }
+
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 2200)
@@ -699,6 +753,32 @@ const InputBox: React.FC<InputBoxProps> = ({
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
+            </button>
+
+            {/* P0.6 语音输入：按住说话 → 转写填入输入框 */}
+            <button
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                color: recording ? 'var(--danger)' : transcribing ? 'var(--accent)' : 'var(--text-faint)',
+                animation: recording ? 'pulse 1.2s ease-in-out infinite' : undefined,
+              }}
+              onClick={toggleRecord}
+              disabled={transcribing || disabled}
+              title={recording ? '正在录音，点击停止并转写' : '语音输入：点击开始录音，再点停止转写'}
+            >
+              {transcribing ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="16 18 22 12 16 6" />
+                  <polyline points="8 6 2 12 8 18" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              )}
             </button>
 
             {/* 右侧：模型选择 + 发送/停止 */}

@@ -44,6 +44,16 @@ v2/
 - `chat.py` ChatRequest 新增 `work_mode` / `plan_confirmed` 字段透传；Ask 模式跳过 P1 记忆提取写入。
 - 前端：useUiStore.workMode（持久化）、ChatView 顶栏三模式切换器 + plan_awaiting_confirm 确认条（点「开始执行」以 plan_confirmed=true 重发续跑）。后台任务路径 tasks.py 暂不带模式（恒 craft）。
 
+## P0.6 语音交互（speech.py：TTS + ASR，全本地）
+
+- `agent/app/api/speech.py`（已在 main.py 显式 import + include_router，新增路由两处都要改）：
+  - `POST /api/speech/synthesize`：macOS `say`（中文声线优先 Tingting/Meijia/Sinji，**别用 Eddy——多语言声线说中文会静音**）→ `afconvert` 转 WAV → `data/uploads/speech/`，返回 {path, url}。
+  - `POST /api/speech/transcribe`：ffmpeg 转 16k mono WAV → faster-whisper base（CPU int8，语言 zh）→ {text}。
+  - `GET /api/speech/audio/{name}`：FileResponse 供 `<audio>` 播放（文件名安全化防穿越）。
+- whisper 模型本地捆绑在 `agent/data/models/whisper-base/`（**gitignore，不提交**；从 modelscope 下载 Systran/faster-whisper-base，HF 官方在本机不可达）。模型目录不存在时回退联网拉 "base"。
+- **App 依赖陷阱**：打包 App 的后端用 `Resources/runtime/python/macos-arm64/bin/python3`（不是 agent/.venv，也不是 agent/runtime）——新增 python 依赖必须装进这个 runtime 的 site-packages。
+- 前端：InputBox 麦克风按钮（getUserMedia + MediaRecorder webm → 转写填入输入框）；MessageItem 朗读按钮（synthesize + Audio 播放）。
+
 ## P3 多智能体（subagents/）
 
 - `agent/app/subagents/__init__.py`：6 角色（researcher/writer/reviewer/coder/analyst/assistant）各带独立 system prompt + 受限工具集；`run_subagent()` 惰性导入 `AgentOrchestrator`（**类名不是 Orchestrator**，orchestrator.py:261），新建受限工具注册表后复用 `run_stream` 跑子智能体；嵌套深度上限 2（`_depth_var`）。

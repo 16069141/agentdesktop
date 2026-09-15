@@ -448,4 +448,29 @@ export const api = {
         `/api/tasks/${encodeURIComponent(taskId)}/cancel`
       ),
   },
+
+  // P0.6 语音交互：TTS 朗读 + ASR 语音输入（后端全本地：say + whisper）
+  speech: {
+    /** 语音转文本：传录音 Blob（webm/wav…）→ {text} */
+    transcribe: async (blob: Blob): Promise<{ text: string; language?: string }> => {
+      const token = (await window.electronAPI?.getAgentToken()) || ''
+      const formData = new FormData()
+      formData.append('file', blob, 'recording.webm')
+      const resp = await fetch(`${apiBase}/api/speech/transcribe`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        throw new Error(`HTTP ${resp.status}: ${text}`)
+      }
+      return resp.json() as Promise<{ text: string; language?: string }>
+    },
+    /** 文本转语音：{text} → {path, url}（url 为 /api/speech/audio/xx.wav） */
+    synthesize: (text: string) =>
+      request<{ path: string; url: string; voice: string }>('POST', '/api/speech/synthesize', {
+        body: { text },
+      }),
+  },
 }

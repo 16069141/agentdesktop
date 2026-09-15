@@ -39,6 +39,7 @@ from .api import (
     tasks_router,
     memory_router,
     schedule_router,
+    speech_router,
 )
 from .storage import (
     init_and_seed,
@@ -158,6 +159,7 @@ app.include_router(mcp_servers_router)
 app.include_router(tasks_router)
 app.include_router(memory_router)
 app.include_router(schedule_router)
+app.include_router(speech_router)
 
 
 @app.get("/healthz")

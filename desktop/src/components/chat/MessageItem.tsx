@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import type { Message, TraceItem, Citation } from '../../types'
+import { api, apiBase } from '../../api'
 import MarkdownContent from './MarkdownContent'
 import AgentTracePanel, { fromTraceItems } from './AgentTracePanel'
 
@@ -42,10 +43,38 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const [showTimeline, setShowTimeline] = useState(false)
   const [copied, setCopied] = useState(false)
   const [hasSelection, setHasSelection] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
   const isUser = message.role === 'user'
   const isAssistant = message.role === 'assistant'
   const isSystem = message.role === 'system'
+
+  /** P0.6 朗读：TTS 合成并播放（本地 say，停止时中断） */
+  const handleSpeak = async () => {
+    if (speaking) {
+      audioRef.current?.pause()
+      setSpeaking(false)
+      return
+    }
+    const text = (message.content || '').trim()
+    if (!text || text === '__EMPTY_FINAL__') return
+    setSpeaking(true)
+    try {
+      const res = await api.speech.synthesize(text)
+      const audio = new Audio(`${apiBase}${res.url}`)
+      audioRef.current = audio
+      audio.onended = () => setSpeaking(false)
+      audio.onerror = () => {
+        setSpeaking(false)
+        audioRef.current = null
+      }
+      await audio.play()
+    } catch {
+      setSpeaking(false)
+      audioRef.current = null
+    }
+  }
 
   /** 工具跑完但模型没吐正文的空返回标记 */
   const isEmptyFinal = isAssistant && message.content === '__EMPTY_FINAL__'
@@ -430,12 +459,40 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
-          {/* 底部：时间 / 复制 / 时间线入口 */}
+          {/* 底部：时间 / 复制 / 朗读 / 时间线入口 */}
           <div
             className="mt-1.5 flex items-center gap-2 text-xs"
             style={{ color: 'var(--text-faint)' }}
           >
             <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
+            {isAssistant && message.content && message.content.trim().length > 0 && (
+              <button
+                className="px-1.5 py-0.5 rounded transition-colors flex items-center gap-1"
+                style={{
+                  background: speaking ? 'var(--accent-soft)' : 'var(--bg-elev)',
+                  color: speaking ? 'var(--accent)' : 'var(--text-dim)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSpeak}
+                title={speaking ? '停止朗读' : '朗读本条回复'}
+              >
+                {speaking ? (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                ) : (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                  </svg>
+                )}
+                {speaking ? '停止' : '朗读'}
+              </button>
+            )}
             <button
               className="px-1.5 py-0.5 rounded transition-colors flex items-center gap-1"
               style={{

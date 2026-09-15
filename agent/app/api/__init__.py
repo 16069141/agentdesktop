@@ -21,6 +21,7 @@ from .mcp_servers import router as mcp_servers_router
 from .tasks import router as tasks_router
 from .memory import router as memory_router
 from .schedule import router as schedule_router
+from .speech import router as speech_router
 
 __all__ = [
     "conversations_router",
@@ -46,4 +47,5 @@ __all__ = [
     "tasks_router",
     "memory_router",
     "schedule_router",
+    "speech_router",
 ]
