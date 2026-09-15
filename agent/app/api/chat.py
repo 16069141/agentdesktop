@@ -749,6 +749,13 @@ async def chat(req: ChatRequest, request: Request):
 
     identity = parse_identity_headers(request.headers)
 
+    # P0.5 工作模式：前端未传/非法时回落配置的默认模式（默认 craft=直接执行，可直接改文件）
+    work_mode = req.work_mode
+    if work_mode not in ("craft", "plan", "ask"):
+        from ..api.settings import _load_settings
+
+        work_mode = _load_settings().get("default_work_mode") or "craft"
+
     # 先落用户消息（保存原始文本，不含附件展开内容，避免历史记录臃肿）
     await msg_repo.create(
         conversation_id=req.conversation_id,
@@ -778,7 +785,7 @@ async def chat(req: ChatRequest, request: Request):
             attachments=req.attachments or [],
             mode=req.mode if req.mode in ("chat", "work") else "chat",
             workspace_dir=workspace_dir,
-            work_mode=req.work_mode if req.work_mode in ("craft", "plan", "ask") else "craft",
+            work_mode=work_mode,
             plan_confirmed=bool(req.plan_confirmed),
         ),
         media_type="text/event-stream; charset=utf-8",

@@ -16,6 +16,7 @@ interface Settings {
   context_ratio_system: number
   context_ratio_history: number
   context_ratio_generation: number
+  default_work_mode?: string
 }
 
 const SettingsView: React.FC = () => {
@@ -130,6 +131,37 @@ const SettingsView: React.FC = () => {
 
         {/* 企业身份与权限（Phase B P0） */}
         <EnterpriseManager />
+
+        {/* P0.5 工作模式默认值：决定「默认就能直接改文件」 */}
+        <div className="p-4 rounded-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
+          <div className="font-medium mb-1">工作模式默认值</div>
+          <div className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>
+            未选择模式时助手默认采用的工作模式。「直接执行」可读写项目文件；「先计划」先出计划等确认；「只问答」不动任何文件。
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { v: 'craft', label: '直接执行（可改文件）' },
+              { v: 'plan', label: '先计划' },
+              { v: 'ask', label: '只问答（不动文件）' },
+            ].map(({ v, label }) => {
+              const active = (editing.default_work_mode ?? settings?.default_work_mode ?? 'craft') === v
+              return (
+                <button
+                  key={v}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                  style={{
+                    background: active ? 'var(--accent)' : 'var(--bg-elev)',
+                    color: active ? 'var(--accent-ink)' : 'var(--text-dim)',
+                    border: '1px solid var(--border-soft)',
+                  }}
+                  onClick={() => handleInputChange('default_work_mode', v)}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
 
         {/* Shell 安全设置 */}
         <div className="p-4 rounded-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>

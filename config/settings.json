@@ -40,9 +40,9 @@
   ],
   "max_shell_timeout_sec": 10,
   "allowed_root_dirs": [
-    "${HOME}",
-    "${HOME}/Downloads",
-    "${HOME}/Desktop"
+    "/Users/caojian",
+    "/Users/caojian/Downloads",
+    "/Users/caojian/Desktop"
   ],
   "allowed_domains": [
     "github.com",
@@ -56,13 +56,15 @@
     "microsoft.com",
     "*.microsoft.com"
   ],
+  "skill_market_urls": [
+    "https://16069141.github.io/skill-hub"
+  ],
   "context_max_turns": 20,
   "context_system_ratio": 0.15,
   "context_history_ratio": 0.4,
   "context_generation_ratio": 0.45,
+  "memory_enabled": true,
+  "default_work_mode": "craft",
   "model_providers": [],
-  "sso_providers": {},
-  "skill_market_urls": [
-    "https://16069141.github.io/skill-hub"
-  ]
+  "sso_providers": {}
 }

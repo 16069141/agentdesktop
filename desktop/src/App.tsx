@@ -83,6 +83,23 @@ export default function App() {
         await waitForBackend(30_000)
         // 2) 拉取模型列表
         await refreshModels()
+        // 3) 工作模式：本地从未持久化过选择时，采用后端配置的默认模式
+        //    （默认 craft=直接执行，保证开箱即可直接改文件；绝不覆盖用户已做的选择）
+        try {
+          const persistedRaw = localStorage.getItem('private-ai-ui-state')
+          const hasPersistedMode = persistedRaw
+            ? !!(JSON.parse(persistedRaw).state?.workMode)
+            : false
+          if (!hasPersistedMode) {
+            const s = await api.settings.get()
+            const def = ['craft', 'plan', 'ask'].includes(s?.default_work_mode)
+              ? s.default_work_mode
+              : 'craft'
+            useUiStore.getState().setWorkMode(def)
+          }
+        } catch {
+          // 读取失败时沿用内置默认 craft
+        }
         setPhase('ready')
       } catch (e) {
         console.error('[App] 启动失败:', e)

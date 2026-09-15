@@ -79,6 +79,9 @@ DEFAULT_SETTINGS = {
     "context_generation_ratio": 0.45,
     # P1 长期记忆：跨会话记住用户偏好/项目事实，对话时自动检索注入
     "memory_enabled": True,
+    # P0.5 工作模式默认值：craft=直接执行（可读写文件）/ plan=先计划 / ask=只问答（不动文件）。
+    # 前端未传或传非法值时回落；默认 craft 保证「开箱即可直接改文件」。
+    "default_work_mode": "craft",
 }
 
 _bootstrapped = False
@@ -147,6 +150,7 @@ class SettingsUpdate(BaseModel):
     context_history_ratio: float | None = None
     context_generation_ratio: float | None = None
     memory_enabled: bool | None = None  # P1 长期记忆开关
+    default_work_mode: str | None = None  # P0.5 工作模式默认值：craft/plan/ask
     model_providers: list[dict] | None = None  # 私有模型提供商配置（迁移至 llm_servers）
     image_api: dict | None = None  # P0.7 图像生成：{base_url, model}
     image_api_key: str | None = None  # P0.7 图像生成 API Key（明文 → 钥匙串 image-api:key）
@@ -264,6 +268,14 @@ async def update_settings(body: SettingsUpdate) -> Dict[str, Any]:
                 vid_cfg[k] = v
         updates["video_api"] = vid_cfg
     current.update(updates)
+    # 工作模式默认值只接受三种合法取值，非法值拒绝保存（不静默降级）
+    if "default_work_mode" in current:
+        _wm = current["default_work_mode"]
+        if _wm not in ("craft", "plan", "ask"):
+            raise HTTPException(
+                status_code=422,
+                detail="default_work_mode 仅支持 craft / plan / ask",
+            )
     _save_settings(current)
     return current
 
