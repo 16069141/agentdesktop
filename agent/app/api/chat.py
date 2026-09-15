@@ -186,6 +186,16 @@ def _load_allowed_root_dirs() -> list[str]:
     if not dirs:
         # 缺省白名单：用户主目录 + 上传落盘目录（模型读取上传的原始文件）
         dirs = [os.path.expanduser("~")]
+    # 客户端自身代码库根（dev=仓库根 v2/，App=Resources/agent）：自我认知引导
+    # 模型读代码修 bug，必须放行，否则 filesystem 会把读代码拦在权限外
+    try:
+        from ..agents.self_awareness import code_root
+
+        code_dir = code_root()
+        if code_dir and code_dir not in dirs:
+            dirs.append(code_dir)
+    except Exception:
+        pass
     uploads = str(Path(__file__).resolve().parent.parent.parent / "data" / "uploads")
     if uploads not in dirs:
         dirs.append(uploads)
@@ -193,8 +203,11 @@ def _load_allowed_root_dirs() -> list[str]:
 
 
 async def _build_system_prompt(key: str) -> str:
-    """组装 system prompt：基础提示 + 联网搜索能力 + 已启用只读数据库连接清单。"""
+    """组装 system prompt：基础提示 + 自我认知 + 联网搜索能力 + 已启用只读数据库连接清单。"""
+    from ..agents.self_awareness import build_self_awareness_block
+
     prompt = SYSTEM_PROMPT_CHAT if key == "chat" else SYSTEM_PROMPT
+    prompt += build_self_awareness_block()
     prompt += (
         "\n\n## 智能体工作法（P0：计划-执行-验证）\n"
         "- 需要 3 步以上的任务（查资料→处理→产出文件、多轮工具调用等），"
