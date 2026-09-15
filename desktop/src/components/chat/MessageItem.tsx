@@ -13,6 +13,12 @@ interface MessageItemProps {
   citations?: Citation[]
   /** 是否正在流式生成中 */
   streaming?: boolean
+  /** 空返回时的重试回调 */
+  onRegenerate?: () => void
+  /** P0 后台任务：取消 */
+  onTaskCancel?: (message: Message) => void
+  /** P0 后台任务：续跑/重试 */
+  onTaskRetry?: (message: Message) => void
 }
 
 const ROLE_LABEL: Record<Message['role'], string> = {
@@ -29,6 +35,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
   trace,
   citations,
   streaming = false,
+  onRegenerate,
+  onTaskCancel,
+  onTaskRetry,
 }) => {
   const [showTimeline, setShowTimeline] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -37,6 +46,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const isUser = message.role === 'user'
   const isAssistant = message.role === 'assistant'
   const isSystem = message.role === 'system'
+
+  /** 工具跑完但模型没吐正文的空返回标记 */
+  const isEmptyFinal = isAssistant && message.content === '__EMPTY_FINAL__'
 
   /** 扁平布局下的角色色：用户用主题强调色，AI 用次级文字色，系统/工具用语义色 */
   const roleColor = isUser
@@ -185,6 +197,111 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
+          {/* P0 后台任务卡片：进度/状态 + 取消/续跑 */}
+          {isAssistant && message.task && (
+            <div
+              className="mb-2 rounded-lg px-3 py-2.5"
+              style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[11px] font-semibold tracking-wide" style={{ color: 'var(--text-faint)' }}>
+                  后台任务
+                </span>
+                {(() => {
+                  const meta: Record<string, { label: string; color: string }> = {
+                    queued: { label: '排队中', color: 'var(--text-faint)' },
+                    running: { label: '执行中', color: '#3b82f6' },
+                    done: { label: '已完成', color: '#10b981' },
+                    failed: { label: '失败', color: '#ef4444' },
+                    cancelled: { label: '已取消', color: 'var(--text-faint)' },
+                  }
+                  const m = meta[message.task!.status] || meta.queued
+                  return (
+                    <span className="text-[11px] font-medium" style={{ color: m.color }}>
+                      ● {m.label}
+                    </span>
+                  )
+                })()}
+                <span className="text-[10px] ml-auto font-mono" style={{ color: 'var(--text-faint)' }}>
+                  {message.task.taskId}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                {(message.task.status === 'queued' || message.task.status === 'running') && (
+                  <button
+                    className="px-2.5 py-1 rounded-md text-[11px] font-medium"
+                    style={{ background: 'var(--danger)', color: '#fff' }}
+                    onClick={() => onTaskCancel?.(message)}
+                  >
+                    取消
+                  </button>
+                )}
+                {(message.task.status === 'failed' || message.task.status === 'cancelled') && (
+                  <button
+                    className="px-2.5 py-1 rounded-md text-[11px] font-medium"
+                    style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
+                    onClick={() => onTaskRetry?.(message)}
+                  >
+                    续跑
+                  </button>
+                )}
+                {message.task.status === 'running' && (
+                  <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                    可关闭页面，任务继续在后台执行
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* P0 智能体计划：步骤清单（create_plan/update_plan 实时更新） */}
+          {message.plan && message.plan.length > 0 && (
+            <div
+              className="mb-2 rounded-lg px-3 py-2.5"
+              style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
+            >
+              <div className="text-[11px] font-semibold mb-1.5 tracking-wide" style={{ color: 'var(--text-faint)' }}>
+                执行计划
+              </div>
+              <div className="flex flex-col gap-1">
+                {message.plan.map((step) => {
+                  const statusStyle: Record<string, { color: string; icon: string; label: string }> = {
+                    pending: { color: 'var(--text-faint)', icon: '○', label: '待执行' },
+                    running: { color: '#3b82f6', icon: '◐', label: '执行中' },
+                    done: { color: '#10b981', icon: '●', label: '完成' },
+                    failed: { color: '#ef4444', icon: '✕', label: '失败' },
+                    skipped: { color: 'var(--text-faint)', icon: '—', label: '跳过' },
+                  }
+                  const st = statusStyle[step.status] || statusStyle.pending
+                  return (
+                    <div key={step.id} className="flex items-start gap-1.5 text-xs">
+                      <span className="flex-shrink-0 mt-0.5" style={{ color: st.color }} title={st.label}>
+                        {st.icon}
+                      </span>
+                      <span
+                        className="flex-1 min-w-0"
+                        style={{
+                          color: step.status === 'skipped' ? 'var(--text-faint)' : 'var(--text)',
+                          textDecoration: step.status === 'skipped' ? 'line-through' : 'none',
+                        }}
+                      >
+                        {step.title}
+                        {step.note ? (
+                          <span className="block text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>
+                            {step.note}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="flex-shrink-0 text-[10px] mt-0.5" style={{ color: st.color }}>
+                        {st.label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* 文档附件 */}
           {message.attachments && message.attachments.length > 0 && (
             <div className="flex flex-col gap-1.5 mb-2">
@@ -222,7 +339,28 @@ const MessageItem: React.FC<MessageItemProps> = ({
           )}
 
           {/* 正文：AI/系统 → Markdown 结构化渲染（表格/代码/标题/引用等）；用户 → 原样保留换行 */}
-          {isAssistant || isSystem ? (
+          {isEmptyFinal ? (
+            <div
+              className="flex items-center gap-3 rounded-lg px-4 py-3 my-1"
+              style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <div className="flex-1 text-sm" style={{ color: 'var(--text-dim)' }}>
+                工具已执行完，但模型没有生成结论文字。可能是上下文过长或模型收笔过早。
+              </div>
+              {onRegenerate && (
+                <button
+                  onClick={onRegenerate}
+                  className="px-3 py-1.5 rounded-lg text-xs transition-colors"
+                  style={{ background: 'var(--accent)', color: '#0b1020', flexShrink: 0, fontWeight: 600 }}
+                >
+                  重新生成
+                </button>
+              )}
+            </div>
+          ) : isAssistant || isSystem ? (
             <MarkdownContent content={message.content || ''} />
           ) : (
             <div

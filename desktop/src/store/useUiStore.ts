@@ -18,7 +18,7 @@ function capMessageCache(cache: Record<string, Message[]>): Record<string, Messa
 
 interface UiState {
   // 路由与布局（Phase B P0：新增 audit / skills；P1：新增 connectors；P2：新增 projects；P3：新增 workflows）
-  activeTab: 'chat' | 'knowledge' | 'tools' | 'usage' | 'settings' | 'audit' | 'skills' | 'connectors' | 'projects' | 'workflows'
+  activeTab: 'chat' | 'knowledge' | 'tools' | 'usage' | 'settings' | 'audit' | 'skills' | 'connectors' | 'projects' | 'workflows' | 'memory' | 'schedule'
   setActiveTab: (tab: UiState['activeTab']) => void
 
   // 主题
@@ -29,13 +29,21 @@ interface UiState {
   // 当前会话
   conversations: Conversation[]
   currentConversationId: string | null
-  setCurrentConversationId: (id: string) => void
+  setCurrentConversationId: (id: string | null) => void
   setConversations: (convs: Conversation[]) => void
 
   // 对话/工作双模式
   chatMode: 'chat' | 'work'
   modeCurrentIds: Record<'chat' | 'work', string | null>
   setChatMode: (mode: 'chat' | 'work') => void
+
+  // 当前工作目录（工作模式下与会话联动：新建会话绑定它、切回会话恢复它）
+  workspaceDir: string
+  setWorkspaceDir: (dir: string) => void
+
+  // 工作空间（项目）列表：底部选择器与左侧项目树共用的单一数据源
+  workspaces: { id: string; name: string; path: string }[]
+  setWorkspaces: (list: { id: string; name: string; path: string }[]) => void
 
   // 消息列表
   messages: Message[]
@@ -114,6 +122,14 @@ export const useUiStore = create<UiState>()(
         })),
       setCurrentConversationId: (id) => set({ currentConversationId: id }),
       setConversations: (convs) => set({ conversations: convs }),
+
+      // 当前工作目录路径（持久化，作为新建会话/发消息/选择器的共享事实来源）
+      workspaceDir: '',
+      setWorkspaceDir: (dir) => set({ workspaceDir: dir }),
+
+      // 工作空间列表（单一数据源，选择器与左侧项目树共用）
+      workspaces: [],
+      setWorkspaces: (list) => set({ workspaces: list }),
 
       // 消息
       messages: [],
@@ -238,6 +254,8 @@ export const useUiStore = create<UiState>()(
         currentConversationId: state.currentConversationId,
         models: state.models,
         currentModelId: state.currentModelId,
+        workspaceDir: state.workspaceDir,
+        workspaces: state.workspaces,
       }),
     }
   )

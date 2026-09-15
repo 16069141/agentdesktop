@@ -24,6 +24,7 @@ class CreateConversationRequest(BaseModel):
     title: str = "新对话"
     modelId: str = ""
     mode: str = "chat"
+    workspacePath: str = ""
 
 
 class UpdateConversationRequest(BaseModel):
@@ -45,7 +46,12 @@ async def list_conversations(mode: str | None = None):
 @router.post("")
 async def create_conversation(req: CreateConversationRequest):
     mode = req.mode if req.mode in ("chat", "work") else "chat"
-    return await conv_repo.create(title=req.title or "新对话", model_id=req.modelId, mode=mode)
+    return await conv_repo.create(
+        title=req.title or "新对话",
+        model_id=req.modelId,
+        mode=mode,
+        workspace_path=req.workspacePath or None,
+    )
 
 
 @router.get("/{conv_id:path}")

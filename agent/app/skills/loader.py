@@ -74,11 +74,24 @@ _online_cache: Dict[str, Any] = {"ts": 0.0, "items": []}
 
 
 def _online_market_urls() -> List[str]:
-    """在线市场根 URL（环境变量 SKILL_HUB_URL / CLAWHUB_URL，可多个）。"""
-    urls = []
+    """在线市场根 URL（可多个，去重）。
+
+    优先级：settings.json 的 skill_market_urls（客户零配置入口）+
+    环境变量 SKILL_HUB_URL / CLAWHUB_URL（部署/开发覆盖）。环境变量命中时追加，
+    便于打包态不改配置即可临时指向自建市场。
+    """
+    urls: List[str] = []
+    try:
+        from ..api.settings import _load_settings
+
+        for u in _load_settings().get("skill_market_urls") or []:
+            if isinstance(u, str) and u.strip():
+                urls.append(u.strip().rstrip("/"))
+    except Exception:  # noqa: BLE001
+        logger.warning("[skill-market] 读取 skill_market_urls 配置失败，回退环境变量", exc_info=True)
     for env in ("SKILL_HUB_URL", "CLAWHUB_URL"):
         u = (os.environ.get(env) or "").strip().rstrip("/")
-        if u:
+        if u and u not in urls:
             urls.append(u)
     return urls
 
@@ -121,8 +134,12 @@ def fetch_online_market_catalog(timeout: int = 8) -> List[Dict[str, Any]]:
     return items
 
 
-def list_market() -> List[Dict[str, Any]]:
-    """市场技能包清单（本地 + 在线合并，安装入口浏览用）。"""
+def list_local_market() -> List[Dict[str, Any]]:
+    """仅本地市场技能包清单（data/skill_market/，不合并在线）。
+
+    与 list_market() 的区别：API 层需要把「本地包」与「在线目录」分开返回，
+    前端各自渲染；list_market() 是合并去重后的统一视图（安装/检索用）。
+    """
     out: List[Dict[str, Any]] = []
     if market_root().exists():
         for child in sorted(market_root().iterdir()):
@@ -143,6 +160,12 @@ def list_market() -> List[Dict[str, Any]]:
                 "security_level": manifest.get("security_level", "P2"),
                 "source": "local_market",
             })
+    return out
+
+
+def list_market() -> List[Dict[str, Any]]:
+    """市场技能包清单（本地 + 在线合并去重，安装入口浏览用）。"""
+    out = list_local_market()
     # 在线市场（P4 正式化）
     for it in fetch_online_market_catalog():
         if not any(x["id"] == it["id"] and x["source"] == "local_market" for x in out):
@@ -391,11 +414,21 @@ async def install_skill(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not policy.ok:
         return {"ok": False, "error": "安全策略校验失败", "issues": policy.errors}
 
+    # 运行时归一化：所有来源统一拷贝到 skills/installed/<skill_id>/。
+    # SkillTool 以该目录为稳定执行根（local_dir 之外来源此前只落在
+    # market/imports 临时目录，卸载清理后运行时会找不到入口）。
+    skill_id = manifest["name"]
+    installed_target = skills_root() / "installed" / skill_id
+    try:
+        if pkg_dir.resolve() != installed_target.resolve():
+            shutil.copytree(pkg_dir, installed_target, dirs_exist_ok=True)
+    except Exception as exc:
+        return {"ok": False, "error": f"技能落盘失败: {exc}"}
+
     # 依赖检测
     deps = dependency_plan(manifest)
     missing = await _detect_missing_deps(deps)
 
-    skill_id = manifest["name"]
     record = await _persist_skill(
         skill_id=skill_id, manifest=manifest,
         source="private" if source in ("local_dir", "zip") else source,

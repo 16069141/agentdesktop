@@ -195,6 +195,36 @@ def _load_allowed_root_dirs() -> list[str]:
 async def _build_system_prompt(key: str) -> str:
     """组装 system prompt：基础提示 + 联网搜索能力 + 已启用只读数据库连接清单。"""
     prompt = SYSTEM_PROMPT_CHAT if key == "chat" else SYSTEM_PROMPT
+    prompt += (
+        "\n\n## 智能体工作法（P0：计划-执行-验证）\n"
+        "- 需要 3 步以上的任务（查资料→处理→产出文件、多轮工具调用等），"
+        "先调用 create_plan 建立步骤计划，再逐条执行；简单任务（1-2 步）直接做，不用建计划。\n"
+        "- 每开始一步先 update_plan 标记 running，完成后标记 done 并附一句结果摘要；"
+        "失败标记 failed，自己排查修复后重试，不要把问题抛回给用户。\n"
+        "- 工具执行后主动核对结果是否达到该步目标（自检）：不达标的换方式重试，"
+        "不要带着未验证的结果继续下一步。\n"
+        "- 全部步骤 done 后，最终回答要总结：做了什么、结果在哪（文件路径）、遗留问题。\n"
+        "\n"
+        "## 多智能体协作（P3：subagent 委派）\n"
+        "- 当任务可以自然拆分为多个相对独立的部分时，用 subagent 工具委派给专职"
+        "子智能体并行执行：researcher(研究员，检索核实)、writer(写手，纯写作)、"
+        "reviewer(审稿人，挑毛病)、coder(编程专家)、analyst(数据分析师)、"
+        "assistant(执行助理)。\n"
+        "- 一次可并发委派多个（如「调研 A 主题 + 调研 B 主题」同时发起两个 researcher）；\n"
+        "- subagent 返回的是中间成果：拿到后必须自己汇总、取舍、组织成对用户的最终回答，"
+        "并说明每个部分由哪个角色产出。\n"
+        "- 简单任务不要委派——直接自己做更快更省；只有拆分后明显更专业/更快时才用。\n"
+    )
+    if key == "work":
+        prompt += (
+            "\n\n## 完成度硬约束（工作模式）\n"
+            "- 用户要求分析、评价、列举、总结、方案类任务时，必须把结论 / 不足 / 建议"
+            "**逐条完整列出**后才算结束。\n"
+            "- 禁止只写一句「让我来分析 / 评价一下」就收尾——这视为未完成，必须继续展开。\n"
+            "- 调用 filesystem / shell 等工具探索目录只是手段；拿到信息后必须继续推理并"
+            "产出完整正文，不能用一句过渡话代替最终答案。\n"
+            "- 若信息确实不足无法下结论，要明确说明还缺什么，而不是含糊收场。"
+        )
     try:
         # ── 联网搜索能力说明（web_search / browser 开箱即用）──
         try:
@@ -333,6 +363,7 @@ class ChatRequest(BaseModel):
     images: list[str] = []
     attachments: list[Attachment] = []
     mode: str = "chat"
+    workspace_dir: str = ""
 
 
 def _sse(event: str, data: Any) -> bytes:
@@ -350,6 +381,7 @@ async def _generate_reply(
     images: list[str] | None = None,
     attachment_paths: list[str] | None = None,
     mode: str = "chat",
+    workspace_dir: str = "",
 ) -> AsyncIterator[dict]:
     """Phase 3: 使用 AgentOrchestrator 生成真实回复（流式）。"""
     try:
@@ -369,6 +401,7 @@ async def _generate_reply(
             session_id=session_id,
             images=images,
             attachment_paths=attachment_paths,
+            workspace_dir=workspace_dir,
         ):
             yield event
     except Exception as exc:
@@ -387,6 +420,7 @@ async def _event_stream(
     images: list[str] | None = None,
     attachments: list[Attachment] | None = None,
     mode: str = "chat",
+    workspace_dir: str = "",
 ) -> AsyncIterator[bytes]:
     """产出 SSE 字节流，并在客户端断开时及时停止。"""
     collected: list[str] = []
@@ -423,6 +457,7 @@ async def _event_stream(
                 images=images,
                 attachment_paths=attach_paths or None,
                 mode=mode,
+                workspace_dir=workspace_dir,
             ):
                 if await request.is_disconnected():
                     aborted = True
@@ -446,6 +481,15 @@ async def _event_stream(
                         {
                             "name": event.get("name", ""),
                             "arguments": event.get("arguments", ""),
+                        },
+                    )
+                elif etype == "plan":
+                    # P0 计划事件：步骤清单/状态变更，前端渲染计划卡片
+                    yield _sse(
+                        "plan",
+                        {
+                            "goal": event.get("goal", ""),
+                            "steps": event.get("steps", []),
                         },
                     )
                 elif etype == "tool_result":
@@ -561,6 +605,19 @@ async def _event_stream(
         except Exception as exc:  # noqa: BLE001
             print(f"[chat] usage_log 写入失败: {exc}", flush=True)
 
+        # P1 长期记忆：本轮回复完成后后台提取候选记忆（静默失败，不阻塞主流程）
+        try:
+            from ..memory import extract_from_pair, memory_enabled
+
+            if memory_enabled() and final_text.strip():
+                asyncio.ensure_future(
+                    extract_from_pair(
+                        user_message, final_text, conversation_id, model_id
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
 
 def _friendly_error(message: str) -> str:
     """把模型/API 原始错误提炼成用户可读的简短说明。
@@ -668,6 +725,9 @@ async def chat(req: ChatRequest, request: Request):
 
     assistant_id = str(uuid.uuid4())
 
+    # 工作目录：优先取前端本轮传入，否则兜底用会话创建时绑定的工作目录
+    workspace_dir = (req.workspace_dir or conv.get("workspacePath") or "").strip()
+
     return StreamingResponse(
         _event_stream(
             request=request,
@@ -680,6 +740,7 @@ async def chat(req: ChatRequest, request: Request):
             images=req.images or None,
             attachments=req.attachments or [],
             mode=req.mode if req.mode in ("chat", "work") else "chat",
+            workspace_dir=workspace_dir,
         ),
         media_type="text/event-stream; charset=utf-8",
         headers={

@@ -3,6 +3,8 @@ export interface Conversation {
   title: string
   modelId: string
   mode?: string
+  /** 工作模式下会话绑定的工作目录绝对路径 */
+  workspacePath?: string | null
   createdAt: number
   updatedAt: number
 }
@@ -32,6 +34,10 @@ export interface Message {
   attachments?: FileAttachment[]
   /** Agent 工具生成的交付文件路径（如 filesystem write 落盘），渲染「打开/浏览」按钮 */
   generatedFiles?: string[]
+  /** P0 智能体计划：assistant 消息执行中的步骤清单（create_plan/update_plan 事件） */
+  plan?: PlanStep[]
+  /** P0 后台任务：后台执行的进度/状态句柄 */
+  task?: TaskMeta
   /** 服务端持久化的消息元数据（assistant 消息含 savedFiles 交付文件，历史重载时恢复） */
   metadata?: { savedFiles?: string[] } | null
 }
@@ -49,8 +55,28 @@ export interface ToolCall {
 }
 
 export interface SSEEvent {
-  type: 'meta' | 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error'
+  type: 'meta' | 'thinking' | 'tool_call' | 'tool_result' | 'plan' | 'text' | 'done' | 'error'
   data: any
+}
+
+/** P0 智能体计划：一步的 id/标题/状态（pending/running/done/failed/skipped） */
+export interface PlanStep {
+  id: string
+  title: string
+  detail?: string
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+  note?: string
+}
+
+/** P0 后台任务状态 */
+export type TaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+/** P0 后台任务：assistant 消息挂载的后台执行句柄 */
+export interface TaskMeta {
+  taskId: string
+  status: TaskStatus
+  /** 发起任务的原始用户消息（续跑/重试复用） */
+  message: string
 }
 
 /** 单条助理消息的事件时间线项（思考 / 工具调用 / 工具结果 / 引用 / 错误） */
@@ -89,6 +115,8 @@ export interface ModelInfo {
   name: string
   providerId: string
   isPublic: boolean
+  /** 数据去向：local=本机 / lan=局域网 / public=公网 / unknown=未知 */
+  scope?: 'local' | 'lan' | 'public' | 'unknown'
   description?: string
 }
 

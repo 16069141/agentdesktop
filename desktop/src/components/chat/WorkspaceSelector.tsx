@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useUiStore } from '../../store/useUiStore'
 
 interface Workspace {
   id: string
@@ -9,38 +10,32 @@ interface Workspace {
 const STORAGE_KEY = 'privateai_workspaces'
 const CURRENT_KEY = 'privateai_current_workspace'
 
-/** 从 localStorage 加载工作空间列表 */
-const loadWorkspaces = (): Workspace[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as Workspace[]) : []
-  } catch {
-    return []
-  }
-}
-
-/** 保存工作空间列表到 localStorage */
-const saveWorkspaces = (list: Workspace[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-}
-
 const WorkspaceSelector: React.FC = () => {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [currentId, setCurrentId] = useState<string>('')
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
+  // 工作空间列表 + 当前工作目录统一由 zustand 持有（单一数据源）
+  const { workspaces, setWorkspaces, workspaceDir, setWorkspaceDir } = useUiStore()
 
+  // 一次性迁移：旧版用 localStorage 'privateai_workspaces' 存列表，迁入 store
   useEffect(() => {
-    const list = loadWorkspaces()
-    setWorkspaces(list)
-    const saved = localStorage.getItem(CURRENT_KEY)
-    if (saved && list.find((w) => w.id === saved)) {
-      setCurrentId(saved)
-    } else if (list.length > 0) {
-      setCurrentId(list[0].id)
-      localStorage.setItem(CURRENT_KEY, list[0].id)
-    }
+    if (workspaces.length > 0) return
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      const legacy = raw ? (JSON.parse(raw) as Workspace[]) : []
+      if (legacy.length > 0) {
+        setWorkspaces(legacy)
+        if (!workspaceDir) {
+          const saved = localStorage.getItem(CURRENT_KEY)
+          const hit = legacy.find((w) => w.id === saved) || legacy[0]
+          if (hit) setWorkspaceDir(hit.path)
+        }
+      }
+    } catch { /* 忽略旧数据 */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** 当前选中的工作区对象（由 workspaceDir 反推） */
+  const current = workspaces.find((w) => w.path === workspaceDir)
 
   /** 点击外部关闭下拉 */
   useEffect(() => {
@@ -54,58 +49,44 @@ const WorkspaceSelector: React.FC = () => {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const current = workspaces.find((w) => w.id === currentId)
-
   /** 切换工作空间 */
   const selectWorkspace = (id: string) => {
-    setCurrentId(id)
-    localStorage.setItem(CURRENT_KEY, id)
+    const ws = workspaces.find((w) => w.id === id)
+    if (ws) setWorkspaceDir(ws.path)
     setOpen(false)
   }
 
   /** 添加工作空间（调用 electron 文件夹选择对话框） */
   const addWorkspace = async () => {
     try {
-      // main 进程 open-file-dialog handler 直接返回 filePaths 数组或 null
       const result: string[] | null = await (window as any).electronAPI?.openFileDialog({
         title: '选择工作空间文件夹',
         properties: ['openDirectory', 'createDirectory'],
       })
       if (!result || !Array.isArray(result) || result.length === 0) return
       const path = result[0]
-      const name = path.split('/').pop() || path
-      // 去重：同一路径不重复添加
+      // 去重：基于 store 最新列表，避免旧 state 导致漏加
       if (workspaces.find((w) => w.path === path)) {
         setOpen(false)
         return
       }
-      const ws: Workspace = {
-        id: `ws-${Date.now()}`,
-        name,
-        path,
-      }
-      const next = [...workspaces, ws]
-      setWorkspaces(next)
-      saveWorkspaces(next)
-      setCurrentId(ws.id)
-      localStorage.setItem(CURRENT_KEY, ws.id)
+      const ws: Workspace = { id: `ws-${Date.now()}`, name: path.split('/').pop() || path, path }
+      setWorkspaces([...workspaces, ws])
+      setWorkspaceDir(path)
       setOpen(false)
     } catch (e) {
       console.error('[Workspace] 添加失败:', e)
     }
   }
 
-  /** 删除工作空间 */
+  /** 删除工作空间（仅从列表移除，不删磁盘目录） */
   const removeWorkspace = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     const next = workspaces.filter((w) => w.id !== id)
     setWorkspaces(next)
-    saveWorkspaces(next)
-    if (currentId === id) {
-      const newCurrent = next[0]?.id ?? ''
-      setCurrentId(newCurrent)
-      if (newCurrent) localStorage.setItem(CURRENT_KEY, newCurrent)
-      else localStorage.removeItem(CURRENT_KEY)
+    if (current?.id === id) {
+      if (next[0]) setWorkspaceDir(next[0].path)
+      else setWorkspaceDir('')
     }
   }
 
@@ -157,7 +138,7 @@ const WorkspaceSelector: React.FC = () => {
                 key={ws.id}
                 className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors"
                 style={{
-                  background: ws.id === currentId ? 'var(--accent-soft)' : 'transparent',
+                  background: ws.id === (current?.id || '') ? 'var(--accent-soft)' : 'transparent',
                 }}
                 onClick={() => selectWorkspace(ws.id)}
               >
@@ -165,14 +146,14 @@ const WorkspaceSelector: React.FC = () => {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate" style={{ color: ws.id === currentId ? 'var(--accent)' : 'var(--text)' }}>
+                  <div className="text-xs font-medium truncate" style={{ color: ws.id === (current?.id || '') ? 'var(--accent)' : 'var(--text)' }}>
                     {ws.name}
                   </div>
                   <div className="text-[10px] truncate" style={{ color: 'var(--text-faint)' }} title={ws.path}>
                     {ws.path}
                   </div>
                 </div>
-                {ws.id === currentId && (
+                {ws.id === (current?.id || '') && (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <polyline points="20 6 9 17 4 12" />
                   </svg>

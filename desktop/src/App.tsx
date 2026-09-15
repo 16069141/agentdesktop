@@ -11,6 +11,8 @@ import ToolsView from './components/tools/ToolsView'
 import UsageView from './components/usage/UsageView'
 import AuditView from './components/audit/AuditView'
 import SkillsView from './components/skills/SkillsView'
+import MemoryView from './components/memory/MemoryView'
+import ScheduleView from './components/schedule/ScheduleView'
 import ConnectorsView from './components/connectors/ConnectorsView'
 import ProjectsView from './components/projects/ProjectsView'
 import WorkflowsView from './components/workflows/WorkflowsView'
@@ -148,6 +150,8 @@ export default function App() {
           {activeTab === 'usage' && <UsageView />}
           {activeTab === 'audit' && <AuditView />}
           {activeTab === 'skills' && <SkillsView />}
+          {activeTab === 'memory' && <MemoryView />}
+          {activeTab === 'schedule' && <ScheduleView />}
           {activeTab === 'connectors' && <ConnectorsView />}
           {activeTab === 'projects' && <ProjectsView />}
           {activeTab === 'workflows' && <WorkflowsView />}

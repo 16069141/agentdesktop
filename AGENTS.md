@@ -36,7 +36,13 @@ v2/
    （venv 的 pip shebang 指向旧路径，**禁止直接调 `.venv/bin/pip`**，必须 `python -m pip`）
 4. **重启后端生效**：杀 8765 占用 → Electron 自动重启后端。
 
-已有工具：`filesystem`（read/write/list/search）、`shell`、`knowledge`、`code`、`browser`、`db_query`、`rpa`、`doc_to_html`（mammoth）、`generate_ppt`（python-pptx）。
+已有工具：`filesystem`（read/write/list/search）、`shell`、`knowledge`、`code`、`browser`、`db_query`、`rpa`、`doc_to_html`（mammoth）、`generate_ppt`（python-pptx）、`create_plan`/`update_plan`（P0 计划-执行-验证，状态挂请求级 PlanBus）、`subagent`（P3 多智能体委派）。
+
+## P3 多智能体（subagents/）
+
+- `agent/app/subagents/__init__.py`：6 角色（researcher/writer/reviewer/coder/analyst/assistant）各带独立 system prompt + 受限工具集；`run_subagent()` 惰性导入 `AgentOrchestrator`（**类名不是 Orchestrator**，orchestrator.py:261），新建受限工具注册表后复用 `run_stream` 跑子智能体；嵌套深度上限 2（`_depth_var`）。
+- `agent/app/tools/subagent_tools.py`：SubagentTool，从 orchestrator 暴露的 contextvar（`get_current_model/get_current_conversation`）读取模型/会话，结果截断 6000 字。
+- 子智能体消息只在内存，不写会话历史；多个 subagent 调用由 ToolNode 的 asyncio.gather 并行执行（总耗时 ≈ 最慢一个）。
 
 ## 关键协议（改动时必须保持兼容）
 

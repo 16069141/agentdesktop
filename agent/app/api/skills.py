@@ -39,7 +39,7 @@ async def market_stats():
     - source_distribution：已安装技能来源分布
     - recent_installs：最近安装 5 条（含时间与来源）
     """
-    local_items = loader.list_market()
+    local_items = loader.list_local_market()
     online_items = loader.fetch_online_market_catalog()
     installed = await loader.list_skills()
     dist: dict[str, int] = {}
@@ -70,8 +70,8 @@ async def list_skills():
 
 @router.get("/market")
 async def market():
-    """本地市场技能包清单 + 在线市场目录（P4 正式化）。"""
-    local_items = loader.list_market()
+    """技能市场清单：items=本地市场包，online=在线市场目录（两路不重叠）。"""
+    local_items = loader.list_local_market()
     online_items = loader.fetch_online_market_catalog()
     return {
         "source": "local_market",

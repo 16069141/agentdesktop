@@ -21,6 +21,7 @@ def _to_camel(row) -> Dict[str, Any]:
         "title": row["title"],
         "modelId": row["model_id"],
         "mode": row["mode"] if "mode" in row.keys() else "chat",
+        "workspacePath": row["workspace_path"] if "workspace_path" in row.keys() else None,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -31,15 +32,15 @@ class ConversationRepo:
         # db_path 仅作兼容保留，实际连接统一走 db.connect()
         self.db_path = db_path
 
-    async def create(self, title: str, model_id: str, mode: str = "chat") -> Dict[str, Any]:
+    async def create(self, title: str, model_id: str, mode: str = "chat", workspace_path: str | None = None) -> Dict[str, Any]:
         conv_id = str(uuid.uuid4())
         now = _now_ms()
         db = await connect()
         try:
             await db.execute(
-                "INSERT INTO conversations (id, title, model_id, mode, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (conv_id, title, model_id, mode or "chat", now, now),
+                "INSERT INTO conversations (id, title, model_id, mode, workspace_path, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (conv_id, title, model_id, mode or "chat", workspace_path or None, now, now),
             )
             await db.commit()
         finally:
@@ -49,6 +50,7 @@ class ConversationRepo:
             "title": title,
             "modelId": model_id,
             "mode": mode or "chat",
+            "workspacePath": workspace_path or None,
             "createdAt": now,
             "updatedAt": now,
         }

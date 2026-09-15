@@ -36,6 +36,9 @@ from .api import (
     files_router,
     web_search_servers_router,
     mcp_servers_router,
+    tasks_router,
+    memory_router,
+    schedule_router,
 )
 from .storage import (
     init_and_seed,
@@ -69,6 +72,11 @@ async def lifespan(app: FastAPI):
 
     stop_wf = asyncio.Event()
     wf_task = asyncio.create_task(workflow_scheduler_loop(stop_wf))
+    # P2：Agent 主动触发调度循环（定时任务）
+    from .api.schedule import scheduler_loop
+
+    stop_sched = asyncio.Event()
+    sched_task = asyncio.create_task(scheduler_loop(stop_sched))
     print(f"[agent] 数据目录: {DATA_DIR}", flush=True)
     print(f"[agent] 数据库:   {DB_PATH}", flush=True)
     print(f"[agent] 监听地址: {AGENT_HOST}:{AGENT_PORT}", flush=True)
@@ -84,7 +92,11 @@ async def lifespan(app: FastAPI):
         wf_task.cancel()
     except Exception:
         pass
-    # 关闭：交由 uvicorn / 父进程信号处理
+    stop_sched.set()
+    try:
+        sched_task.cancel()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -143,6 +155,9 @@ app.include_router(workflows_router)
 app.include_router(files_router)
 app.include_router(web_search_servers_router)
 app.include_router(mcp_servers_router)
+app.include_router(tasks_router)
+app.include_router(memory_router)
+app.include_router(schedule_router)
 
 
 @app.get("/healthz")

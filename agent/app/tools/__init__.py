@@ -26,6 +26,8 @@ from ._foundation import (
 
 # 文档/HTML 生成工具（docx 转换、Jinja2 渲染），实现见 doc_tools.py
 from .doc_tools import DocToHtmlTool, HtmlGeneratorTool
+from .planner_tools import CreatePlanTool, UpdatePlanTool
+from .subagent_tools import SubagentTool
 
 
 class FilesystemTool(BaseTool):
@@ -807,6 +809,11 @@ def create_tools(
         "doc_to_html": DocToHtmlTool(allowed_roots=allowed_root_dirs),
         "generate_ppt": PptGeneratorTool(),
         "generate_html": HtmlGeneratorTool(),
+        # P0 智能体闭环：计划-执行-验证（无状态，状态挂在请求级 PlanBus）
+        "create_plan": CreatePlanTool(),
+        "update_plan": UpdatePlanTool(),
+        # P3 多智能体：委派子任务给专职子智能体并行执行
+        "subagent": SubagentTool(),
     }
     # 外部 MCP Server 动态挂载：tools_cache 中有工具清单的启用服务
     # 直接注册为 McpDynamicTool（可插拔；新增服务在设置页「测试并同步」后生效）。

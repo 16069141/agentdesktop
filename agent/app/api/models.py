@@ -33,10 +33,8 @@ def _get_allowed_map() -> dict[str, list[str]]:
 
 
 def _filter_by_allowed(models: list[dict], allowed_map: dict[str, list[str]]) -> list[dict]:
-    """按 provider 白名单过滤模型列表。
-
-    大小写不敏感：后台填 GLM-4.7 也能命中真实模型 id glm-4.7。
-    """
+    """按 provider 白名单过滤模型列表。"""
+    # 大小写不敏感：后台填 GLM-4.7 也能命中真实模型 id glm-4.7。
     result = []
     for m in models:
         allowed = allowed_map.get(m.get("providerId", ""), [])
@@ -47,6 +45,40 @@ def _filter_by_allowed(models: list[dict], allowed_map: dict[str, list[str]]) ->
         if str(m.get("id", "")).lower() in allowed_lower:
             result.append(m)
     return result
+
+
+def _classify_scope(base_url: str) -> str:
+    """根据模型服务器地址判断数据去向：
+    local=本机 / lan=局域网内网 / public=公网。
+    前端据此把"数据不出内网"可视化给用户。"""
+    u = (base_url or "").lower()
+    if not u:
+        return "unknown"
+    host = u
+    for prefix in ("http://", "https://"):
+        if host.startswith(prefix):
+            host = host[len(prefix):]
+    host = host.split("/")[0].split(":")[0]
+    if host in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+        return "local"
+    if (
+        host.startswith("10.")
+        or host.startswith("192.168.")
+        or host.startswith("172.")
+    ):
+        # 172.16.0.0/12
+        try:
+            second = int(host.split(".")[1])
+            if 16 <= second <= 31:
+                return "lan"
+        except Exception:
+            pass
+        if host.startswith("172.16.") or host.startswith("172.17.") or host.startswith("172.18.") \
+           or host.startswith("172.19.") or host.startswith("172.2") or host.startswith("172.30.") \
+           or host.startswith("172.31."):
+            return "lan"
+        return "public"
+    return "public"
 
 
 async def _probe_all_providers_parallel(settings) -> list[dict]:
@@ -72,12 +104,15 @@ async def _probe_all_providers_parallel(settings) -> list[dict]:
                     )
                 except Exception:
                     pass
+            base_url = getattr(p, "base_url", "") or ""
+            scope = _classify_scope(base_url)
             return [
                 {
                     "id": m.id,
                     "name": m.name,
                     "providerId": m.provider,
                     "isPublic": False,  # 连接模型统一不标记为公网
+                    "scope": scope,
                     "description": f"来自 {p.name}",
                 }
                 for m in model_list

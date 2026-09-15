@@ -42,7 +42,9 @@ const SkillsView: React.FC = () => {
     source_distribution: Record<string, number>
     recent_installs: { id: string; name: string; version: string; source: string; installedAt: number }[]
   } | null>(null)
-  const [marketOnline, setMarketOnline] = useState<any[]>([])
+  const [marketItems, setMarketItems] = useState<any[]>([])
+  const [marketSearch, setMarketSearch] = useState('')
+  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set())
   const [installing, setInstalling] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -54,8 +56,21 @@ const SkillsView: React.FC = () => {
         api.skills.market(),
         api.skills.marketStats(),
       ])
-      setSkills(Array.isArray(data) ? data : [])
-      setMarketOnline(Array.isArray(market?.online) ? market.online : [])
+      const installed = Array.isArray(data) ? data : []
+      setSkills(installed)
+      // 市场 = 本地包（data/skill_market）+ 在线市场（skill_market_urls / SKILL_HUB_URL）
+      const local = Array.isArray(market?.items) ? market.items : []
+      const online = Array.isArray(market?.online) ? market.online : []
+      // 按 id 去重（本地/在线两路可能同 id，后端已分路，这里做兜底防御）
+      const seen = new Set<string>()
+      const merged = [...local, ...online].filter((m) => {
+        if (!m || !m.id) return false
+        if (seen.has(m.id)) return false
+        seen.add(m.id)
+        return true
+      })
+      setMarketItems(merged)
+      setInstalledIds(new Set(installed.map((s) => s.id)))
       setStats(marketStats)
     } catch (e) {
       setError(`加载技能失败：${e instanceof Error ? e.message : String(e)}`)
@@ -121,6 +136,16 @@ const SkillsView: React.FC = () => {
     }
   }
 
+  // 市场检索（客户端过滤：名称 / 描述 / ID）
+  const q = marketSearch.trim().toLowerCase()
+  const filteredMarket = q
+    ? marketItems.filter((m) =>
+        [m.name, m.description, m.id].some(
+          (v) => typeof v === 'string' && v.toLowerCase().includes(q),
+        ),
+      )
+    : marketItems
+
   return (
     <div className="p-6 overflow-y-auto h-full" style={{ color: 'var(--text)' }}>
       <h2 className="text-lg font-semibold mb-1">技能（Skills）</h2>
@@ -179,29 +204,54 @@ const SkillsView: React.FC = () => {
         </div>
       )}
 
-      {/* P5：在线市场目录 */}
-      {marketOnline.length > 0 && (
+      {/* 技能市场（本地市场 + SkillHub/ClawHub 在线市场） */}
+      {marketItems.length > 0 && (
         <div className="p-4 rounded-xl mb-4" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-          <div className="font-medium mb-2 text-sm">在线市场（SkillHub / ClawHub）</div>
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <div className="font-medium text-sm">技能市场</div>
+            <span className="text-xs" style={{ color: 'var(--text-faint)' }}>共 {marketItems.length} 个技能包</span>
+            <input
+              className="flex-1 min-w-40 text-sm rounded-lg px-2.5 py-1.5 outline-none"
+              style={{ background: 'var(--surf-input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+              placeholder="搜索技能（名称 / 描述 / ID）"
+              value={marketSearch}
+              onChange={(e) => setMarketSearch(e.target.value)}
+            />
+          </div>
           <div className="space-y-2">
-            {marketOnline.map((m) => (
-              <div key={m.id} className="flex items-center gap-2 text-xs p-2 rounded" style={{ background: 'var(--bg-elev)' }}>
-                <span className="font-medium" style={{ color: 'var(--text)' }}>{m.name}</span>
-                <span className="font-mono" style={{ color: 'var(--text-faint)' }}>v{m.version}</span>
-                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${LEVEL_COLOR[m.security_level] || 'var(--accent)'}22`, color: LEVEL_COLOR[m.security_level] || 'var(--accent)' }}>
-                  {m.security_level}
-                </span>
-                <span className="flex-1 truncate" style={{ color: 'var(--text-faint)' }}>{m.description}</span>
-                <button
-                  className="px-2 py-0.5 rounded"
-                  style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
-                  disabled={installing === m.id}
-                  onClick={() => installMarket(m)}
-                >
-                  {installing === m.id ? '安装中...' : '安装'}
-                </button>
-              </div>
-            ))}
+            {filteredMarket.map((m) => {
+                const installed = installedIds.has(m.id)
+                return (
+                  <div key={`${m.source}-${m.id}`} className="flex items-center gap-2 text-xs p-2 rounded" style={{ background: 'var(--bg-elev)' }}>
+                    <span className="font-medium" style={{ color: 'var(--text)' }}>{m.name}</span>
+                    <span className="font-mono" style={{ color: 'var(--text-faint)' }}>v{m.version}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${LEVEL_COLOR[m.security_level] || 'var(--accent)'}22`, color: LEVEL_COLOR[m.security_level] || 'var(--accent)' }}>
+                      {m.security_level}
+                    </span>
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--code-bg)', color: 'var(--text-dim)' }}>
+                      {m.source === 'online_market' ? '在线' : '本地'}
+                    </span>
+                    <span className="flex-1 truncate" style={{ color: 'var(--text-faint)' }}>{m.description}</span>
+                    <button
+                      className="px-2 py-0.5 rounded"
+                      style={{
+                        background: installed ? 'var(--ok-soft)' : 'var(--accent-soft)',
+                        color: installed ? 'var(--ok)' : 'var(--accent)',
+                      }}
+                      disabled={installed || installing === m.id}
+                      onClick={() => installMarket(m)}
+                    >
+                      {installing === m.id ? '安装中...' : installed ? '已安装' : '安装'}
+                    </button>
+                  </div>
+                )
+              })}
+            {filteredMarket.length === 0 && (
+              <div className="text-xs" style={{ color: 'var(--text-faint)' }}>没有匹配的技能包</div>
+            )}
+          </div>
+          <div className="mt-2 text-xs" style={{ color: 'var(--text-faint)' }}>
+            市场地址：settings.json 的 <span className="font-mono">skill_market_urls</span>（或环境变量 SKILL_HUB_URL / CLAWHUB_URL），多个地址自动合并。
           </div>
         </div>
       )}

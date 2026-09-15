@@ -4,7 +4,7 @@ import { api } from '../../api'
 import { streamChat } from '../../sse/sseClient'
 import MessageItem from './MessageItem'
 import InputBox from './InputBox'
-import type { Message, TraceItem, Citation, FileAttachment } from '../../types'
+import type { Message, TraceItem, Citation, FileAttachment, PlanStep } from '../../types'
 import { stripDSML } from '../../utils/dsml'
 
 const QUICK_COMMANDS = [
@@ -56,6 +56,7 @@ const ChatView: React.FC = () => {
     clearActiveStream,
     chatMode,
     setChatMode,
+    setWorkspaceDir,
   } = useUiStore()
 
   /** 每条助理消息的事件时间线 */
@@ -110,6 +111,11 @@ const ChatView: React.FC = () => {
         }))
         setMessages(msgs)
         setLoadError(null)
+        // 切回会话：若该工作会话绑定了工作目录，恢复底部目录选择器到该目录
+        const boundWd = (data as any)?.workspacePath
+        if (typeof boundWd === 'string' && boundWd) {
+          setWorkspaceDir(boundWd)
+        }
       } catch (e) {
         if (cancelled) return
         console.error('[ChatView] 加载消息失败:', e)
@@ -132,10 +138,28 @@ const ChatView: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  /** P0 后台执行开关：开启后发送的任务放后台跑 */
+  const [bgMode, setBgMode] = useState(false)
+  /** 后台任务轮询注册表：taskId → 停止函数 + 消息 id（卸载/取消时停止） */
+  const taskPollsRef = useRef<Record<string, { stop: () => void; messageId: string }>>({})
+  // 卸载时停止全部轮询
+  useEffect(() => {
+    return () => {
+      Object.values(taskPollsRef.current).forEach((p) => p.stop())
+      taskPollsRef.current = {}
+    }
+  }, [])
+
   /** 发送消息 */
   const handleSend = async (text: string, images?: string[], attachments?: FileAttachment[]) => {
     if (!currentConversationId || isCurrentStreaming) return
     if (!text.trim() && (!images || images.length === 0) && (!attachments || attachments.length === 0)) return
+
+    // P0 后台执行：任务放后台，走 launch + 轮询，不占流式通道
+    if (bgMode) {
+      await bgSend(text, images, attachments)
+      return
+    }
 
     const userMsg: Message = {
       id: `local-user-${Date.now()}`,
@@ -180,6 +204,151 @@ const ChatView: React.FC = () => {
     }
 
     await runStream(text, assistantId, images, attachments)
+  }
+
+  /** P0 后台执行：launch + 轮询，任务在服务端独立运行（可关页面、可取消/续跑） */
+  const bgSend = async (text: string, images?: string[], attachments?: FileAttachment[]) => {
+    const conversationId = currentConversationId
+    if (!conversationId) return
+
+    const userMsg: Message = {
+      id: `local-user-${Date.now()}`,
+      conversationId,
+      role: 'user',
+      content: text || (images?.length ? '[图片]' : '[附件]'),
+      images,
+      attachments,
+      createdAt: Date.now(),
+    }
+    appendMessage(userMsg)
+
+    const assistantId = `local-task-${Date.now()}`
+    const assistantMsg: Message = {
+      id: assistantId,
+      conversationId,
+      role: 'assistant',
+      content: '',
+      modelId: currentModelId,
+      createdAt: Date.now(),
+    }
+    appendMessage(assistantMsg)
+
+    // 第一条消息自动提炼标题（与正常发送一致）
+    const currentConv = conversations.find((c) => c.id === conversationId)
+    if (currentConv && (currentConv.title === '新对话' || !currentConv.title) && text.trim()) {
+      const convId = conversationId
+      const msgText = text
+      const modelId = currentModelId
+      ;(async () => {
+        try {
+          const res = await api.conversations.generateTitle(convId, msgText, modelId)
+          if (res && res.ok && res.title) {
+            setConversations(
+              conversations.map((c) => (c.id === convId ? { ...c, title: res.title } : c))
+            )
+          }
+        } catch {
+          // 标题生成失败不影响任务
+        }
+      })()
+    }
+
+    try {
+      const res = await api.tasks.launch({
+        conversation_id: conversationId,
+        message: text,
+        model_id: currentModelId,
+        mode: chatMode,
+        workspace_dir: chatMode === 'work' ? useUiStore.getState().workspaceDir : '',
+        persist_user: true,
+      })
+      updateMessageInConversation(conversationId, assistantId, {
+        task: { taskId: res.task_id, status: 'queued', message: text },
+      })
+      void pollTask(res.task_id, conversationId, assistantId, text)
+    } catch (err) {
+      updateMessageInConversation(conversationId, assistantId, {
+        content: `⚠ 后台任务启动失败：${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
+  }
+
+  /** 后台任务轮询：每 2s 拉一次进度，增量更新正文/计划/状态，终态停止 */
+  const pollTask = async (taskId: string, conversationId: string, assistantId: string, messageText: string) => {
+    let stopped = false
+    taskPollsRef.current[taskId] = { stop: () => { stopped = true }, messageId: assistantId }
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    try {
+      while (!stopped) {
+        await sleep(2000)
+        if (stopped) break
+        let task: Awaited<ReturnType<typeof api.tasks.get>>
+        try {
+          task = await api.tasks.get(taskId)
+        } catch {
+          continue // 服务端在跑，网络抖动继续轮询
+        }
+        const texts = (task.events || [])
+          .filter((e) => e.type === 'text')
+          .map((e) => String((e as any).delta ?? ''))
+          .join('')
+        const planEv = [...(task.events || [])].reverse().find((e) => e.type === 'plan')
+        const steps = planEv ? (planEv as any).steps as PlanStep[] | undefined : undefined
+        const patch: Partial<Message> = {
+          content: stripDSML(texts) || (task.status === 'done' ? '__EMPTY_FINAL__' : ''),
+          task: { taskId, status: task.status, message: messageText },
+        }
+        if (steps && steps.length > 0) patch.plan = steps
+        updateMessageInConversation(conversationId, assistantId, patch)
+        if (task.status !== 'queued' && task.status !== 'running') break
+      }
+    } finally {
+      delete taskPollsRef.current[taskId]
+    }
+  }
+
+  /** P0：取消后台任务 */
+  const handleTaskCancel = async (message: Message) => {
+    const task = message.task
+    if (!task) return
+    const conversationId = currentConversationId
+    if (!conversationId) return
+    taskPollsRef.current[task.taskId]?.stop()
+    try {
+      await api.tasks.cancel(task.taskId)
+    } catch {
+      // 忽略：状态以下次轮询/查询为准
+    }
+    updateMessageInConversation(conversationId, message.id, {
+      task: { ...task, status: 'cancelled' },
+    })
+  }
+
+  /** P0：续跑/重试 —— 同一会话复用原消息重新后台执行（用户消息不再重复入史） */
+  const handleTaskRetry = async (message: Message) => {
+    const task = message.task
+    if (!task) return
+    const conversationId = currentConversationId
+    if (!conversationId) return
+    try {
+      const res = await api.tasks.launch({
+        conversation_id: conversationId,
+        message: task.message,
+        model_id: currentModelId,
+        mode: chatMode,
+        workspace_dir: chatMode === 'work' ? useUiStore.getState().workspaceDir : '',
+        persist_user: false,
+      })
+      updateMessageInConversation(conversationId, message.id, {
+        content: '',
+        task: { taskId: res.task_id, status: 'queued', message: task.message },
+      })
+      void pollTask(res.task_id, conversationId, message.id, task.message)
+    } catch (err) {
+      updateMessageInConversation(conversationId, message.id, {
+        content: `⚠ 续跑启动失败：${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
   }
 
   /** 发起 SSE 流式请求（按 conversationId 独立管理，切换对话不中断） */
@@ -251,7 +420,16 @@ const ChatView: React.FC = () => {
     }
 
     await streamChat(
-      { conversationId, message: text, modelId: currentModelId, images, attachments, mode: chatMode },
+      {
+        conversationId,
+        message: text,
+        modelId: currentModelId,
+        images,
+        attachments,
+        mode: chatMode,
+        // 工作模式下携带当前工作目录，agent 的文件/shell 操作在此目录下进行
+        workspaceDir: chatMode === 'work' ? useUiStore.getState().workspaceDir : '',
+      },
       {
         onEvent: (event) => {
           const data = event.data || {}
@@ -322,6 +500,16 @@ const ChatView: React.FC = () => {
               break
             }
 
+            case 'plan': {
+              // P0 智能体计划：步骤清单/状态变更，渲染在消息卡片内
+              const steps = Array.isArray(data.steps) ? data.steps : []
+              if (steps.length === 0) break
+              updateMessageInConversation(conversationId, assistantId, {
+                plan: steps as PlanStep[],
+              })
+              break
+            }
+
             case 'text': {
               const delta = String(data.delta ?? data.text ?? data.content ?? '')
               if (!delta) break
@@ -346,7 +534,9 @@ const ChatView: React.FC = () => {
             case 'done': {
               flushNow()
               if (!buffer) {
-                updateMessageInConversation(conversationId, assistantId, { content: '（无内容返回）' })
+                // 工具可能都执行完了，但模型没吐正文 → 打标记，
+                // MessageItem 渲染成可重试的友好卡片，而不是干巴巴的「（无内容返回）」
+                updateMessageInConversation(conversationId, assistantId, { content: '__EMPTY_FINAL__' })
               }
               break
             }
@@ -383,6 +573,14 @@ const ChatView: React.FC = () => {
   const handleStop = () => {
     if (currentConversationId) {
       abortActiveStream(currentConversationId)
+    }
+  }
+
+  /** 兜底重发：AI 空返回时，把最后一条用户消息原样再发一次 */
+  const handleRegenerate = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user' && m.content)
+    if (lastUser && !isCurrentStreaming) {
+      handleSend(lastUser.content)
     }
   }
 
@@ -472,14 +670,22 @@ const ChatView: React.FC = () => {
             <span>127.0.0.1</span>
             <span>·</span>
             <span>{currentModel?.name || currentModelId}</span>
-            {currentModel?.isPublic && (
+            {/* 数据流向可视化：当前模型走本机/局域网(绿)还是公网(橙) */}
+            {currentModel?.scope === 'public' ? (
               <span
-                className="px-1.5 py-0.5 rounded"
+                className="px-1.5 py-0.5 rounded text-[10px]"
                 style={{ background: 'rgba(242,179,94,0.16)', color: 'var(--warn)' }}
               >
                 公网
               </span>
-            )}
+            ) : currentModel?.scope === 'local' || currentModel?.scope === 'lan' ? (
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px]"
+                style={{ background: 'rgba(63,216,190,0.16)', color: 'var(--accent)' }}
+              >
+                {currentModel.scope === 'local' ? '本机' : '局域网'}
+              </span>
+            ) : null}
           </div>
         </div>
         {!currentConversationId && (
@@ -556,6 +762,9 @@ const ChatView: React.FC = () => {
                 trace={traces[msg.id]}
                 citations={citations[msg.id]}
                 streaming={isCurrentStreaming && streamingMessageId === msg.id}
+                onRegenerate={handleRegenerate}
+                onTaskCancel={handleTaskCancel}
+                onTaskRetry={handleTaskRetry}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -573,6 +782,8 @@ const ChatView: React.FC = () => {
         currentModelId={currentModelId}
         onModelChange={setCurrentModelId}
         onNavigate={(tab) => setActiveTab(tab as any)}
+        bgMode={bgMode}
+        onBgModeChange={setBgMode}
       />
     </div>
   )

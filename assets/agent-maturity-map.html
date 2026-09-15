@@ -1,0 +1,69 @@
+<html style="margin:0;padding:0;">
+<div style="width:100%;box-sizing:border-box;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#1f2430;padding:16px;background:#f7f8fa;">
+  <div style="font-size:16px;font-weight:600;margin-bottom:2px;">从"会调工具的对话助手"到"真正的智能体客户端"（示意）</div>
+  <div style="font-size:13px;color:#6b7280;margin-bottom:12px;">绿色 = 你的客户端已具备 &nbsp;·&nbsp; 橙色 = 距离"真正智能体"的主要缺口 &nbsp;·&nbsp; 底部 = 建议路线</div>
+
+  <!-- 已有能力 -->
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:12px;">
+    <div style="font-size:14px;font-weight:600;color:#047857;margin-bottom:8px;">已经具备（骨架完整）</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <div style="flex:1 1 200px;min-width:200px;border:1px solid #a7f3d0;background:#f0fdf6;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>感知层</b><br/>多模态图片 · 附件解析（pdf/docx/xlsx/pptx）· 联网搜索 · 浏览器
+      </div>
+      <div style="flex:1 1 200px;min-width:200px;border:1px solid #a7f3d0;background:#f0fdf6;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>决策循环</b><br/>多轮工具调用闭环 · 任务分类路由 · 熔断/去重/审计
+      </div>
+      <div style="flex:1 1 200px;min-width:200px;border:1px solid #a7f3d0;background:#f0fdf6;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>行动层</b><br/>12+ 内置工具 · 企业连接器(ERP/CRM/OA) · MCP · 技能市场 + SkillTool
+      </div>
+      <div style="flex:1 1 200px;min-width:200px;border:1px solid #a7f3d0;background:#f0fdf6;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>协作与安全</b><br/>审批/权限 · 工作区/项目 · 会话记忆(滑动窗口) · 审计
+      </div>
+    </div>
+  </div>
+
+  <!-- 缺口 -->
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:12px;">
+    <div style="font-size:14px;font-weight:600;color:#c2410c;margin-bottom:8px;">主要缺口（按优先级排序）</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <div style="flex:1 1 240px;min-width:240px;border:1px solid #f0b35c;border-left:4px solid #e08a1e;background:#fff8ef;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>① 自主规划-执行-验证</b><br/>现在是"一问一答 + 最多 12 轮"；缺任务拆解、自检/修复循环、后台长任务 + 进度事件、失败续跑
+      </div>
+      <div style="flex:1 1 240px;min-width:240px;border:1px solid #f0b35c;border-left:4px solid #e08a1e;background:#fff8ef;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>② 长期记忆</b><br/>跨会话记住你的偏好、项目事实、历史结论；缺"自动提取 → 存储 → 检索注入"闭环
+      </div>
+      <div style="flex:1 1 240px;min-width:240px;border:1px solid #f0b35c;border-left:4px solid #e08a1e;background:#fff8ef;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>③ 主动触发</b><br/>现在是"你找它"；缺定时任务、邮件/日历/文件事件驱动、到期提醒与监控汇报
+      </div>
+      <div style="flex:1 1 240px;min-width:240px;border:1px solid #f0b35c;border-left:4px solid #e08a1e;background:#fff8ef;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>④ 多智能体协作</b><br/>复杂任务缺并行子任务（研究/编码/审查分角色）、结果汇总
+      </div>
+      <div style="flex:1 1 240px;min-width:240px;border:1px solid #f0b35c;border-left:4px solid #e08a1e;background:#fff8ef;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>⑤ 自我改进闭环</b><br/>有 eval 脚本但缺产品侧：用户点赞/踩、失败重放、提示词与技能自动优化
+      </div>
+      <div style="flex:1 1 240px;min-width:240px;border:1px solid #f0b35c;border-left:4px solid #e08a1e;background:#fff8ef;border-radius:8px;padding:8px 10px;font-size:13px;">
+        <b>⑥ 技能生态治理</b><br/>开放第三方投稿前的签名/审核机制（当前仅自有上架）
+      </div>
+    </div>
+  </div>
+
+  <!-- 路线 -->
+  <div style="background:#eef4ff;border:1px solid #c7d7fe;border-radius:10px;padding:12px;">
+    <div style="font-size:14px;font-weight:600;color:#1d4ed8;margin-bottom:8px;">建议路线（P0 先做，立竿见影）</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:13px;">
+      <div style="flex:1 1 220px;min-width:220px;background:#fff;border:1px solid #c7d7fe;border-radius:8px;padding:8px 10px;">
+        <b style="color:#c2410c;">P0（2–3 周）</b><br/>规划-执行-验证闭环：任务拆解 → 工具执行 → 自检修复 → 交付；后台任务 + 进度事件 + 可中断/续跑
+      </div>
+      <div style="flex:1 1 220px;min-width:220px;background:#fff;border:1px solid #c7d7fe;border-radius:8px;padding:8px 10px;">
+        <b style="color:#c2410c;">P1（2 周）</b><br/>长期记忆：记忆抽取/存储/检索注入 + 用户偏好持久化（跨会话越用越懂你）
+      </div>
+      <div style="flex:1 1 220px;min-width:220px;background:#fff;border:1px solid #c7d7fe;border-radius:8px;padding:8px 10px;">
+        <b style="color:#c2410c;">P2（2 周）</b><br/>主动触发：定时任务 + 邮件/日历/文件事件驱动，主动汇报与提醒
+      </div>
+      <div style="flex:1 1 220px;min-width:220px;background:#fff;border:1px solid #c7d7fe;border-radius:8px;padding:8px 10px;">
+        <b style="color:#c2410c;">P3（持续）</b><br/>多智能体协作 + 自我改进闭环 + 技能生态开放
+      </div>
+    </div>
+  </div>
+</div>
+</html>

@@ -59,8 +59,12 @@ class ShellSecurity:
         self.whitelist = whitelist or [
             "ls", "cat", "pwd", "echo", "head", "tail", "grep", "find",
             "wc", "sort", "uniq", "diff", "git", "python", "python3",
-            "node", "npm", "curl", "wget", "which", "env", "date", "whoami",
+            "node", "npm", "npx", "curl", "wget", "which", "env", "date", "whoami",
             "pip", "pip3", "mkdir", "cp", "mv", "touch", "open",
+            # ── 文本/构建/日常开发补充 ──
+            "sed", "awk", "less", "more", "make", "jq", "xargs", "tree",
+            "chmod", "tar", "gzip", "gunzip", "unzip", "zip",
+            "brew", "code", "docker", "docker-compose", "docker-compose-v2",
             # ── 数据库：PostgreSQL 全家桶 ──
             "psql", "postgres", "initdb", "pg_ctl", "pg_config",
             "createdb", "dropdb", "createuser", "dropuser",

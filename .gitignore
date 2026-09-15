@@ -53,3 +53,6 @@ nohup.out
 
 # 备份文件
 *.bak
+
+# 独立发布的技能市场仓库（自含 git，单独同步到 16069141/skill-hub）
+skill-hub/

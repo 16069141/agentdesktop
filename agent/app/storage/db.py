@@ -6,7 +6,10 @@
 - 数据目录默认落在 agent/data/，可用环境变量 AGENT_DATA_DIR 覆盖。
 """
 import os
+import logging
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
@@ -64,24 +67,40 @@ CREATE INDEX IF NOT EXISTS idx_conversations_updated
 """
 
 
+async def _column_exists(db, table: str, column: str) -> bool:
+    """用 PRAGMA table_info 真实判断列是否存在，替代「try ALTER 吞错」。"""
+    async with db.execute(f"PRAGMA table_info({table})") as cur:
+        rows = await cur.fetchall()
+    return any(r[1] == column for r in rows)
+
+
+async def _ensure_column(db, table: str, column: str, ddl: str) -> None:
+    """幂等补列：先查存在性，缺失才 ALTER；真正失败时打日志，不再静默吞掉。"""
+    if await _column_exists(db, table, column):
+        return
+    try:
+        await db.execute(ddl)
+        logger.info(f"[db] 迁移：已为 {table} 补列 {column}")
+    except Exception as exc:  # noqa: BLE001
+        # 列已存在是常见路径（并发/重入），其余失败必须可见
+        if "duplicate column" not in str(exc).lower():
+            logger.error(f"[db] 迁移 {table}.{column} 失败: {exc}")
+
+
 async def init_db() -> None:
     """建库建表（幂等，可重复调用）。"""
     ensure_data_dir()
     db = await connect()
     try:
         await db.executescript(SCHEMA_SQL)
-        # 轻量迁移：老库补 metadata 列（幂等）
-        try:
-            await db.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
-        except Exception:
-            pass  # 列已存在
-        # 轻量迁移：老库补 conversations.mode 列（默认 chat，兼容历史会话）
-        try:
-            await db.execute(
-                "ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'"
-            )
-        except Exception:
-            pass  # 列已存在
+        # 轻量迁移：老库补列（显式检查，不再靠 try/except 静默吞错）
+        await _ensure_column(db, "messages", "metadata",
+                             "ALTER TABLE messages ADD COLUMN metadata TEXT")
+        await _ensure_column(db, "conversations", "mode",
+                             "ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'")
+        await _ensure_column(db, "conversations", "workspace_path",
+                             "ALTER TABLE conversations ADD COLUMN workspace_path TEXT")
         await db.commit()
+        logger.info(f"[db] 初始化完成: {DB_PATH}")
     finally:
         await db.close()

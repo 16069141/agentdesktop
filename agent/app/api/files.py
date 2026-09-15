@@ -55,7 +55,7 @@ def _extract_text(file_bytes: bytes, filename: str, content_type: str) -> dict[s
     if kind is None:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型：{ext or '未知'}。支持：txt / md / pdf / docx / xlsx",
+            detail=f"不支持的文件类型：{ext or '未知'}。支持：txt / md / pdf / docx / xlsx / pptx",
         )
 
     if kind == "text":

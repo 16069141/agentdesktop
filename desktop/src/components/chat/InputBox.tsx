@@ -1,11 +1,15 @@
 import React, { useState, useRef } from 'react'
 import type { ModelInfo, FileAttachment } from '../../types'
 import { api } from '../../api'
+import { useUiStore } from '../../store/useUiStore'
 import WorkspaceSelector from './WorkspaceSelector'
 import SkillSelector from './SkillSelector'
 
 interface InputBoxProps {
   onSend: (message: string, images?: string[], attachments?: FileAttachment[]) => void
+  /** P0 后台执行开关：开启后任务放后台跑，可关页面、随时查进度/取消/续跑 */
+  bgMode?: boolean
+  onBgModeChange?: (v: boolean) => void
   onStop: () => void
   isStreaming: boolean
   /** 未选中会话时禁用输入 */
@@ -80,7 +84,11 @@ const InputBox: React.FC<InputBoxProps> = ({
   currentModelId,
   onModelChange,
   onNavigate,
+  bgMode = false,
+  onBgModeChange,
 }) => {
+  // 对话（轻量问答）模式下不显示工作区/权限/技能/连接器这一排工作相关按钮
+  const chatMode = useUiStore((s) => s.chatMode)
   const [input, setInput] = useState('')
   const [images, setImages] = useState<ImageItem[]>([])
   const [attachments, setAttachments] = useState<FileAttachment[]>([])
@@ -228,7 +236,11 @@ const InputBox: React.FC<InputBoxProps> = ({
               },
             ])
             removePending()
-            showToast(`${res.filename} 解析完成（${res.char_count.toLocaleString()} 字符）`)
+            showToast(
+              res.truncated
+                ? `${res.filename} 已解析，但文件较大，内容被截断（仅前 ${res.char_count.toLocaleString()} 字符）`
+                : `${res.filename} 解析完成（${res.char_count.toLocaleString()} 字符）`
+            )
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             // 提取后端返回的 detail
@@ -726,6 +738,20 @@ const InputBox: React.FC<InputBoxProps> = ({
                 </span>
               </div>
 
+              {/* P0 后台执行开关：长任务跑后台，可随时查进度/取消/续跑 */}
+              <button
+                className="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors"
+                style={{
+                  background: bgMode ? 'var(--accent)' : 'var(--bg-elev)',
+                  color: bgMode ? 'var(--accent-ink)' : 'var(--text-faint)',
+                  border: '1px solid var(--border-soft)',
+                }}
+                onClick={() => onBgModeChange?.(!bgMode)}
+                title="开启后任务在后台执行，关闭对话框也不中断；可随时查看进度、取消或续跑"
+              >
+                ⏳ 后台
+              </button>
+
               {/* 发送/停止按钮 */}
               {isStreaming ? (
                 <button
@@ -753,8 +779,9 @@ const InputBox: React.FC<InputBoxProps> = ({
           </div>
         </div>
 
-        {/* 功能按钮栏 */}
+        {/* 功能按钮栏（仅工作模式显示；对话模式保持简洁） */}
         <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+          {chatMode === 'work' && (<>
           <WorkspaceSelector />
 
           <button
@@ -813,6 +840,7 @@ const InputBox: React.FC<InputBoxProps> = ({
             </span>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
           </button>
+          </>)}
 
           {/* Token 提示靠右 */}
           <div className="flex-1" />

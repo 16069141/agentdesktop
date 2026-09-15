@@ -71,7 +71,7 @@ export const api = {
   conversations: {
     list: (mode?: string) =>
       request<any[]>('GET', `/api/conversations${mode ? `?mode=${mode}` : ''}`),
-    create: (data: { title: string; modelId: string; mode?: string }) =>
+    create: (data: { title: string; modelId: string; mode?: string; workspacePath?: string }) =>
       request<any>('POST', '/api/conversations', { body: data }),
     get: (id: string) => request<any>('GET', `/api/conversations/${encodeURIComponent(id)}`),
     delete: (id: string) => request<any>('DELETE', `/api/conversations/${encodeURIComponent(id)}`),
@@ -300,6 +300,82 @@ export const api = {
       request<any>('PUT', '/api/settings', { body: data }),
   },
 
+  // P1 长期记忆（可见、可删、可手动添加、可开关）
+  memory: {
+    list: () =>
+      request<{
+        memories: Array<{
+          id: number
+          kind: 'preference' | 'fact' | 'conclusion'
+          content: string
+          source_conversation?: string
+          created_at: number
+          updated_at: number
+          hit_count: number
+        }>
+        total: number
+        kinds: Record<string, string>
+      }>('GET', '/api/memory'),
+    add: (data: { kind: string; content: string }) =>
+      request<{ ok: boolean; id?: number | null; dup?: boolean }>('POST', '/api/memory', {
+        body: data,
+      }),
+    remove: (id: number) => request<{ ok: boolean }>('DELETE', `/api/memory/${id}`),
+    clear: () => request<{ ok: boolean; cleared: number }>('DELETE', '/api/memory'),
+  },
+
+  // P2 主动触发：定时任务 + 通知
+  schedule: {
+    list: () =>
+      request<{
+        jobs: Array<{
+          id: string
+          title: string
+          message: string
+          model_id?: string
+          schedule: Record<string, unknown>
+          schedule_text: string
+          enabled: boolean
+          next_run_at: number | null
+          last_run_at: number | null
+          last_status: string
+          last_task_id?: string
+          conversation_id?: string
+          created_at: number
+          updated_at: number
+        }>
+      }>('GET', '/api/schedule'),
+    create: (data: { title: string; message: string; schedule: Record<string, unknown>; enabled?: boolean }) =>
+      request<{ ok: boolean; id: string; next_run_at: number; schedule_text: string }>(
+        'POST',
+        '/api/schedule',
+        { body: data },
+      ),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<{ ok: boolean; id: string; schedule_text: string }>('PUT', `/api/schedule/${id}`, {
+        body: data,
+      }),
+    remove: (id: string) => request<{ ok: boolean }>('DELETE', `/api/schedule/${id}`),
+    runNow: (id: string) => request<{ ok: boolean; id: string; note?: string }>(
+      'POST',
+      `/api/schedule/${id}/run`,
+    ),
+    notifications: () =>
+      request<{
+        unread: number
+        items: Array<{
+          id: string
+          job_id?: string
+          title: string
+          message: string
+          status: string
+          created_at: number
+          read: number
+        }>
+      }>('GET', '/api/notifications'),
+    markRead: () => request<{ ok: boolean }>('POST', '/api/notifications/read'),
+  },
+
   // 用量
   usage: {
     get: (period?: string) =>
@@ -342,5 +418,34 @@ export const api = {
     remove: (id: string) => request<any>('DELETE', `/api/mcp-servers/${encodeURIComponent(id)}`),
     test: (id: string) => request<any>('POST', `/api/mcp-servers/${encodeURIComponent(id)}/test`),
     sync: (id: string) => request<any>('POST', `/api/mcp-servers/${encodeURIComponent(id)}/sync`),
+  },
+
+  // P0 后台任务（长任务跑后台 + 进度查询 + 取消）
+  tasks: {
+    launch: (data: {
+      conversation_id: string
+      message: string
+      model_id?: string
+      mode?: string
+      workspace_dir?: string
+      /** 首次启动落库用户消息；续跑（重试）传 false 避免重复入史 */
+      persist_user?: boolean
+    }) => request<{ ok: boolean; task_id: string }>('POST', '/api/tasks/launch', { body: data }),
+    get: (taskId: string) =>
+      request<{
+        task_id: string
+        status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+        conversation_id: string
+        model_id?: string
+        error?: string | null
+        events: Array<Record<string, unknown>>
+        created_at: number
+        updated_at: number
+      }>('GET', `/api/tasks/${encodeURIComponent(taskId)}`),
+    cancel: (taskId: string) =>
+      request<{ ok: boolean; task_id: string; status: string; note?: string }>(
+        'POST',
+        `/api/tasks/${encodeURIComponent(taskId)}/cancel`
+      ),
   },
 }

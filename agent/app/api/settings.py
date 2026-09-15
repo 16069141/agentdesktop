@@ -71,10 +71,14 @@ DEFAULT_SETTINGS = {
     "max_shell_timeout_sec": 10,
     "allowed_root_dirs": _home_roots(),
     "allowed_domains": ["github.com", "api.github.com", "raw.githubusercontent.com", "*.github.com"],
+    # 在线技能市场根 URL（客户零配置：装好即见市场；环境变量 SKILL_HUB_URL / CLAWHUB_URL 追加生效）
+    "skill_market_urls": [],
     "context_max_turns": 20,
     "context_system_ratio": 0.15,
     "context_history_ratio": 0.40,
     "context_generation_ratio": 0.45,
+    # P1 长期记忆：跨会话记住用户偏好/项目事实，对话时自动检索注入
+    "memory_enabled": True,
 }
 
 _bootstrapped = False
@@ -137,10 +141,12 @@ class SettingsUpdate(BaseModel):
     max_shell_timeout_sec: int | None = None
     allowed_root_dirs: list[str] | None = None
     allowed_domains: list[str] | None = None
+    skill_market_urls: list[str] | None = None
     context_max_turns: int | None = None
     context_system_ratio: float | None = None
     context_history_ratio: float | None = None
     context_generation_ratio: float | None = None
+    memory_enabled: bool | None = None  # P1 长期记忆开关
     model_providers: list[dict] | None = None  # 私有模型提供商配置（迁移至 llm_servers）
 
 

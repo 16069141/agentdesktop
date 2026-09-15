@@ -61,5 +61,8 @@
   "context_history_ratio": 0.4,
   "context_generation_ratio": 0.45,
   "model_providers": [],
-  "sso_providers": {}
+  "sso_providers": {},
+  "skill_market_urls": [
+    "https://16069141.github.io/skill-hub"
+  ]
 }

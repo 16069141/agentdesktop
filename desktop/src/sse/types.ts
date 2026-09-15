@@ -1,12 +1,13 @@
 import type { Conversation, Message, ModelInfo, FileAttachment } from '../types'
 
-/** SSE 事件类型（对齐规格书 §7.1） */
+/** SSE 事件类型（对齐规格书 §7.1；plan 为 P0 智能体计划事件） */
 export type SSEEventType =
   | 'meta'
   | 'thinking'
   | 'tool_call'
   | 'tool_result'
   | 'citation'
+  | 'plan'
   | 'text'
   | 'done'
   | 'error'
@@ -28,6 +29,8 @@ export interface ChatStreamParams {
   attachments?: FileAttachment[]
   /** 对话/工作双模式分区 */
   mode?: 'chat' | 'work'
+  /** 工作模式下绑定的工作目录绝对路径（文件/shell 操作的根） */
+  workspaceDir?: string
 }
 
 /** 流式回调集合 */

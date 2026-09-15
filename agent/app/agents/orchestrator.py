@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import time
@@ -23,6 +24,7 @@ from typing import Any, AsyncIterator, Optional
 from ..context.context_manager import ContextManager
 from ..dsml import strip_dsml_text
 from ..dsml.stream import dsml_guard
+from ..tools.planner_tools import PlanBus, get_plan_bus, set_plan_bus
 from ..providers import (
     _mark_model_tool_support,
     classify_task,
@@ -33,6 +35,19 @@ from ..providers import (
 from ..tools import init_tools
 
 logger = logging.getLogger(__name__)
+
+# P3 多智能体：当前请求的模型与会话上下文（subagent 工具据此委派子智能体，
+# 不用新增参数穿透整个调用链；请求任务结束后上下文自然消亡）
+_current_model: contextvars.ContextVar[str] = contextvars.ContextVar("current_model", default="")
+_current_conversation: contextvars.ContextVar[str] = contextvars.ContextVar("current_conversation", default="")
+
+
+def get_current_model() -> str:
+    return _current_model.get()
+
+
+def get_current_conversation() -> str:
+    return _current_conversation.get()
 
 
 class AgentState:
@@ -267,6 +282,7 @@ class AgentOrchestrator:
             allowed_root_dirs=allowed_root_dirs,
         )
         self._tool_node = ToolNode(self._tool_registry)
+        self._approval_callback = approval_callback
 
         # 工具注册表（全部工具始终注册；knowledge 未配置连接时由工具自身返回提示）
         self._tool_registry = {k: v for k, v in self._tool_registry.items() if v is not None}
@@ -287,6 +303,8 @@ class AgentOrchestrator:
         session_id: str = "",
         images: Optional[list[str]] = None,
         attachment_paths: Optional[list[str]] = None,
+        workspace_dir: str = "",
+        cancel_event: Optional[asyncio.Event] = None,
     ) -> AsyncIterator[dict]:
         """主入口：流式运行 Agent 循环，产出 SSE 兼容事件。
 
@@ -298,6 +316,8 @@ class AgentOrchestrator:
             images: 粘贴的图片（base64 data URL），用于多模态视觉理解。
             attachment_paths: 上传文件已落盘的绝对路径列表。模型可通过
                 filesystem 工具读取这些原始文件（如 docx 用 doc_to_html 转换）。
+            cancel_event: 后台任务取消信号；置位后下一轮循环前停止并产出
+                cancelled 事件（供 /api/tasks/cancel 使用）。None 表示不可取消。
         """
 
         # system prompt 不进 messages：它由 ContextManager.build_context 经
@@ -341,6 +361,49 @@ class AgentOrchestrator:
                     "无需处理文件时忽略本条提示。"
                 ),
             })
+
+        # 工作目录注入：工作模式下会话绑定了工作区，告知模型在此目录下开展工作。
+        # filesystem 用绝对路径读写；shell 通过 cwd 参数进入该目录执行。
+        if workspace_dir and workspace_dir.strip():
+            wd = workspace_dir.strip()
+            messages.append({
+                "role": "user",
+                "content": (
+                    "[工作区] 当前工作会话绑定的工作目录为：\n"
+                    f"{wd}\n"
+                    "请在此目录下开展工作：读写/搜索文件时使用该目录下的绝对路径；"
+                    "执行 shell 命令时务必通过 cwd 参数指定此目录。"
+                    "无文件或命令操作时忽略本条提示。"
+                ),
+            })
+        # P1 长期记忆：跨会话检索注入（一次请求只注入一轮，检索命中才注入）
+        try:
+            from ..memory import memory_enabled
+            from ..memory import store as memory_store
+
+            if memory_enabled():
+                _mem_rows = await memory_store.search_memories(
+                    user_message, limit=6
+                )
+                if _mem_rows:
+                    _kind_labels = {
+                        "preference": "偏好", "fact": "事实", "conclusion": "结论",
+                    }
+                    _mem_block = (
+                        "[长期记忆] 以下是关于用户/项目的跨会话记忆（供参考，"
+                        "不要向用户复述这些条目本身）：\n"
+                        + "\n".join(
+                            f"- [{_kind_labels.get(r.get('kind'), r.get('kind'))}] "
+                            f"{r.get('content', '')}"
+                            for r in _mem_rows
+                        )
+                    )
+                    messages.append({"role": "user", "content": _mem_block})
+                    for _r in _mem_rows:
+                        asyncio.ensure_future(memory_store.bump_memory(_r["id"]))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("[agent] 记忆检索注入跳过: %s", exc)
+
         task_type = classify_task(user_message)
         # require_tools=True：Agent 的核心价值就是调用工具闭环，
         # 因此优先选择支持 function calling 的模型；不支持的候选会被跳过。
@@ -376,11 +439,36 @@ class AgentOrchestrator:
             provider_id=target_provider,
         )
 
+        # P3：暴露当前模型/会话给 subagent 工具（工具无参数穿透通道）
+        _m_token = _current_model.set(target_model)
+        _c_token = _current_conversation.set(conversation_id or "")
+
         yield {"type": "meta", "conversation_id": conversation_id, "model_id": target_model}
+
+        # P0 智能体闭环：创建请求级计划总线（contextvar 随请求任务隔离，
+        # 无需 reset —— 请求任务结束后上下文自然消亡，不会污染并发会话）。
+        _plan_bus = PlanBus()
+        set_plan_bus(_plan_bus)
+
+        # 技能运行时同步：把「已启用且有可执行入口」的已安装技能挂进工具表
+        # （SkillTool 动态注册）。安装/启停/卸载后下一次会话即生效，无需重启后端；
+        # 同步失败只记日志，不阻断聊天。
+        try:
+            from ..tools.skill_tools import sync_installed_skill_tools
+
+            await sync_installed_skill_tools(self._tool_registry, self._approval_callback)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[agent] 技能同步失败（不阻断会话）: %s", exc)
 
         turn = 0
         while turn < self._max_turns:
             turn += 1
+
+            # ── 后台任务取消检查（P0）：置位后立即停止，不启动下一轮 LLM ──
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("[agent] 收到取消信号，停止本轮任务")
+                yield {"type": "cancelled", "message": "任务已取消"}
+                return
 
             # ── 上下文预算裁剪 ──
             context = self.cm.build_context(
@@ -542,6 +630,10 @@ class AgentOrchestrator:
                 identity=identity,
             )
 
+            # P0：透传本轮工具执行中产生的计划事件（create_plan/update_plan）
+            for _plan_ev in _plan_bus.take_events():
+                yield _plan_ev
+
             # 产出工具事件（完整结果，供前端时间线展示/展开/复制）
             for tc in all_tool_calls:
                 fn = tc.get("function", {})
@@ -634,6 +726,12 @@ class AgentOrchestrator:
                 full_messages = [
                     {"role": "system", "content": context["system"]},
                     *context["messages"],
+                    {"role": "user", "content": (
+                        "请基于以上工具读取到的内容，直接用中文输出完整的最终回答："
+                        "把分析结论、发现的问题/不足、改进建议逐条列清楚。"
+                        "这是最后一步，不要再调用任何工具，也不要只写「让我分析/评价一下」"
+                        "这类过渡话——直接给出成稿。"
+                    )},
                 ]
                 provider = self._registry.get(state.provider_id)
                 stream = dsml_guard(provider.chat(
@@ -673,6 +771,9 @@ class AgentOrchestrator:
                 logger.error(f"[agent] 兜底文本生成失败: {exc}")
 
         # 最终收尾：整个 Agent 循环结束后统一产出 done（含累计用量）
+        # 兜底冲刷计划事件（正常路径已在工具执行后透传，此处防遗漏）
+        for _plan_ev in _plan_bus.take_events():
+            yield _plan_ev
         logger.info(f"[agent] 对话结束，共 {turn} 轮，工具调用 {len(state.tool_results)} 次")
         yield {"type": "done", "usage": {
             "promptTokens": state.token_usage.get("input", 0),

@@ -18,6 +18,9 @@ from .workflows import router as workflows_router
 from .files import router as files_router
 from .web_search_servers import router as web_search_servers_router
 from .mcp_servers import router as mcp_servers_router
+from .tasks import router as tasks_router
+from .memory import router as memory_router
+from .schedule import router as schedule_router
 
 __all__ = [
     "conversations_router",
@@ -40,4 +43,7 @@ __all__ = [
     "files_router",
     "web_search_servers_router",
     "mcp_servers_router",
+    "tasks_router",
+    "memory_router",
+    "schedule_router",
 ]
