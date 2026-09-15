@@ -552,6 +552,13 @@ def build_providers(settings: dict | None = None) -> list[BaseProvider]:
         sid = item["sid"]
         api_key = item["api_key"]
         base_url = item["base_url"]
+        # 端点型 base：用户直接填了完整推理端点（如讯飞
+        # .../v2/chat/completions）。OpenAI SDK 会向 {base_url}/chat/completions
+        # 发请求，必须剥掉 /chat/completions 后缀让 SDK 拼回，
+        # 否则推理请求打到 .../chat/completions/chat/completions → 404。
+        _chat_suffix = "/chat/completions"
+        if base_url.rstrip("/").endswith(_chat_suffix):
+            base_url = base_url.rstrip("/")[: -len(_chat_suffix)]
         providers.append(OpenAICompatibleProvider(
             provider_id=sid,
             name=s.get("name") or sid,

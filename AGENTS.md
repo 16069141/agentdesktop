@@ -38,6 +38,12 @@ v2/
 
 已有工具：`filesystem`（read/write/list/search）、`shell`、`knowledge`、`code`、`browser`、`db_query`、`rpa`、`doc_to_html`（mammoth）、`generate_ppt`（python-pptx）、`create_plan`/`update_plan`（P0 计划-执行-验证，状态挂请求级 PlanBus）、`subagent`（P3 多智能体委派）。
 
+## 模型服务器连接（llm_servers，端点型 base 处理）
+
+- `agent/app/api/llm_servers.py`：`normalize_v1_url` 识别**端点型** base（含 `/chat/completions`、`/v2/`、`/api/paas/` 等标记或 `/v2`/`/v4` 结尾）→ 原样保留不补 `/v1`；裸域名/服务根才补 `/v1`（Ollama）。`_chat_endpoint_base` 把 `/chat/completions` 结尾剥成服务根（OpenAI SDK 会拼回）。
+- `providers/base.py` build_providers 对端点型 base 同样剥根，否则推理请求打到 `/chat/completions/chat/completions` 404。
+- 无 `/models` 列表接口的服务（讯飞星火等）：`/api/llm-servers/{id}/test` 404/405 时回退 `_probe_chat_endpoint`（POST 推理端点，<500 即视为可用），健康标记正常 + notice 提示填白名单；`sync-models` 同样处理。**改 normalize 逻辑后注意存量坏值**（如 `/v2/v1`）需用 PUT 重新写 base_url。
+
 ## P0.9 图片视觉输入（上传图片解析）
 
 - `agent/app/vision.py`：data URL 落盘（`agent/data/uploads/images/chat-*.png`）+ OCR 提取。macOS 用 **ocrmac**（Apple Vision，离线中文准，pip 装进 dev venv 与 App mac runtime），Windows 用 PowerShell **Windows.Media.Ocr**（Win10 1803+ 系统自带，无 Python 依赖，模式同 speech.py SAPI 分支）。

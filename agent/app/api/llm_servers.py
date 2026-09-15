@@ -52,18 +52,46 @@ PROBE_TIMEOUT = 10.0
 
 
 def normalize_v1_url(base_url: str) -> str:
-    """规范化到 OpenAI 兼容 /v1 端点。"""
+    """规范化到 OpenAI 兼容 /v1 端点。
+
+    识别「端点型」地址：用户直接填了完整推理端点（如讯飞
+    https://maas-api.cn-huawei-1.xf-yun.com/v2/chat/completions、
+    智谱 /api/paas/v4）→ 视为完整端点原样保留，不再追加 /v1
+    （否则会拼出 .../chat/completions/v1，模型列表与推理请求全部 404）。
+    裸域名/服务根（Ollama localhost:11434、api.deepseek.com 等）才补 /v1。
+    """
     url = base_url.rstrip("/")
     # 去除重复的 /v1（如 .../v1/v1 → .../v1），兼容历史脏数据
     while url.endswith("/v1/v1"):
         url = url[:-3]
     if url.endswith("/v1"):
         return url
+    # 端点型标记：地址里已含具体端点路径 → 完整端点，不补 /v1
+    endpoint_markers = (
+        "/chat/completions", "/completions", "/embeddings",
+        "/api/paas/", "/v2/", "/v4/",
+    )
+    if any(m in url for m in endpoint_markers) or url.endswith(("/v2", "/v4")):
+        return url
     if "/v1/" in url:
         url = url.split("/v1/")[0] + "/v1"
     elif url.endswith("/api"):
         url = url[:-4]
     return url + "/v1"
+
+
+def _chat_endpoint_base(base_url: str) -> str:
+    """端点型 base（以 /chat/completions 结尾）→ 剥成服务根。
+
+    OpenAI SDK 会向 {base_url}/chat/completions 发请求；若用户直接填了
+    完整端点（如讯飞 .../v2/chat/completions），必须剥掉后缀让 SDK 拼回，
+    否则推理请求会打到 .../v2/chat/completions/chat/completions。
+    """
+    u = (base_url or "").rstrip("/")
+    suffix = "/chat/completions"
+    if u.endswith(suffix):
+        return u[: -len(suffix)]
+    return u
 
 
 def _mask(server: dict) -> dict:
@@ -103,6 +131,38 @@ async def _probe_models(
         data = resp.json()
         models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
         return _filter_by_whitelist(models, allowed_models)
+
+
+async def _probe_chat_endpoint(
+    base_url: str,
+    api_key: str = "",
+    timeout: float = PROBE_TIMEOUT,
+) -> bool:
+    """推理端点连通性探测（无 /models 列表接口的服务兜底）。
+
+    对端点型 base 剥根后 POST {root}/chat/completions 最小请求；
+    服务端返回任意 <500 状态码（200/400/401/403/404/405 等，说明
+    路径可达、服务存在）即视为连接可用；仅网络层失败/超时才判不可用。
+    """
+    root = _chat_endpoint_base(base_url).rstrip("/")
+    url = root + "/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "model": "probe",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "stream": False,
+    }
+    try:
+        async with httpx.AsyncClient(
+            trust_env=False, timeout=timeout, headers=headers
+        ) as client:
+            resp = await client.post(url, json=payload)
+            return resp.status_code < 500
+    except Exception:
+        return False
 
 
 class ServerCreate(BaseModel):
@@ -244,6 +304,27 @@ async def test_server(server_id: str):
             "model_count": len(models),
             "models": models[:20],
         }
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        # 无模型列表接口（404/405）→ 回退推理端点连通性测试：
+        # 这类服务（如讯飞星火）推理可用但没有 GET /models 接口，
+        # 不应把连接整体判为异常。
+        if status in (404, 405):
+            chat_ok = await _probe_chat_endpoint(
+                server["base_url"], api_key=api_key
+            )
+            if chat_ok:
+                await repo.save_health(server_id, True)
+                latency_ms = int((time.time() - started) * 1000)
+                return {
+                    "ok": True,
+                    "latency_ms": latency_ms,
+                    "model_count": 0,
+                    "models": [],
+                    "notice": "连接正常；该服务无 /models 模型列表接口，请在「允许模型」白名单中手动填写模型名称",
+                }
+        await repo.save_health(server_id, False)
+        return {"ok": False, "error": str(exc)}
     except Exception as exc:
         await repo.save_health(server_id, False)
         return {"ok": False, "error": str(exc)}
@@ -270,11 +351,26 @@ async def sync_models(server_id: str):
         await repo.save_health(server_id, True)
         return {"ok": True, "models": models, "count": len(models)}
     except httpx.HTTPStatusError as exc:
-        await repo.save_health(server_id, False)
         status = exc.response.status_code
         if status == 404:
-            detail = "该服务不支持 /v1/models 模型列表接口，请手动在「允许模型」字段填入模型名称白名单"
+            # 无模型列表接口：回退推理端点连通性测试。连接可用则健康标记
+            # 为正常，模型列表靠「允许模型」白名单，不把连接判为异常。
+            chat_ok = await _probe_chat_endpoint(
+                server["base_url"], api_key=api_key
+            )
+            if chat_ok:
+                await repo.save_models_cache(server_id, [])
+                await repo.save_health(server_id, True)
+                return {
+                    "ok": True,
+                    "models": [],
+                    "count": 0,
+                    "notice": "该服务无 /models 模型列表接口，请手动在「允许模型」字段填入模型名称白名单",
+                }
+            await repo.save_health(server_id, False)
+            detail = "该服务不支持 /v1/models 模型列表接口，且推理端点连通性测试失败，请检查 Base URL"
         else:
+            await repo.save_health(server_id, False)
             detail = f"同步模型列表失败 (HTTP {status}): {exc}"
         raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
