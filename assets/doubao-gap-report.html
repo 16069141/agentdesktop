@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>颤翎子 AI 助手 × 豆包 能力对标评测</title>
+<style>
+  :root{
+    --bg:#0f1117; --card:#171a23; --card2:#1d2130; --line:#2a2f42;
+    --txt:#e8eaf2; --sub:#9aa3b8; --dim:#5c6478;
+    --green:#34d399; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.6;padding:32px 20px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;font-weight:700;letter-spacing:.5px}
+  .sub{color:var(--sub);font-size:13px;margin-top:6px}
+  .note{color:var(--dim);font-size:12px;margin-top:4px}
+  .verdict{margin-top:20px;background:linear-gradient(135deg,#1a2332,#141c33);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .verdict b{color:var(--blue)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-top:20px}
+  .card h2{font-size:17px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card h2 .tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px}
+  .tag.hot{background:rgba(248,113,113,.15);color:var(--red)}
+  .tag.mid{background:rgba(251,191,36,.15);color:var(--amber)}
+  .tag.low{background:rgba(52,211,153,.15);color:var(--green)}
+  .tag.adv{background:rgba(167,139,250,.15);color:var(--purple)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--sub);font-weight:600;font-size:12px;white-space:nowrap}
+  td.cap{font-weight:600;white-space:nowrap;color:var(--txt)}
+  .gap5{color:var(--red);font-weight:700}.gap4{color:var(--red)}.gap3{color:var(--amber)}.gap2{color:var(--amber)}.gap1{color:var(--green)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.full{background:rgba(52,211,153,.15);color:var(--green)}
+  .pill.part{background:rgba(251,191,36,.15);color:var(--amber)}
+  .pill.none{background:rgba(248,113,113,.15);color:var(--red)}
+  .pill.adv{background:rgba(167,139,250,.15);color:var(--purple)}
+  /* 条形图 */
+  .bars{margin-top:4px}
+  .bar-row{display:grid;grid-template-columns:150px 1fr 1fr;gap:10px;align-items:center;margin-bottom:9px;font-size:12px}
+  .bar-row .lbl{color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar{height:14px;border-radius:7px;background:var(--card2);position:relative;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:7px}
+  .bar .v{position:absolute;right:6px;top:0;font-size:10px;line-height:14px;color:#0b0e14;font-weight:700}
+  .doubao i{background:linear-gradient(90deg,#60a5fa,#3b82f6)}
+  .chan i{background:linear-gradient(90deg,#34d399,#10b981)}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--sub);margin-top:4px}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .legend i{width:14px;height:10px;border-radius:3px;display:inline-block}
+  /* 路线 */
+  .roadmap{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .phase{background:var(--card2);border-radius:10px;padding:14px}
+  .phase h3{font-size:14px;margin-bottom:8px}
+  .phase.p0 h3{color:var(--red)} .phase.p1 h3{color:var(--amber)} .phase.p2 h3{color:var(--blue)}
+  .phase ul{margin:0;padding-left:18px;font-size:12.5px;color:var(--sub)}
+  .phase li{margin-bottom:5px}
+  .phase li b{color:var(--txt)}
+  .adv{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .adv .item{background:var(--card2);border-radius:10px;padding:14px}
+  .adv .item h3{font-size:14px;color:var(--purple);margin-bottom:6px}
+  .adv .item p{font-size:12.5px;color:var(--sub)}
+  @media(max-width:760px){
+    .roadmap,.adv{grid-template-columns:1fr}
+    .bar-row{grid-template-columns:100px 1fr 1fr}
+    td.cap{white-space:normal}
+  }
+  .foot{margin-top:24px;color:var(--dim);font-size:11.5px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>颤翎子 AI 助手 × 豆包 能力对标评测</h1>
+  <div class="sub">评测基准：豆包（2026-09 功能全貌）｜对象：颤翎子 AI 助手（本地桌面客户端 v2，P0–P3 已上线）</div>
+  <div class="note">成熟度评分为主观评估（0–100），用于示意差距方向，非官方度量。豆包信息来源见文末链接。</div>
+
+  <div class="verdict">
+    <b>一句话结论：</b>颤翎子在「智能体执行内核」上已达豆包 80% 水准（计划-执行-验证、多智能体、定时触发、技能市场都已闭环），
+    但在「多模态产出层」和「生态层」差距最大——<b>语音、图像/视频生成、在线办公套件、技能与连接器生态</b>是缺失最明显的四大块；
+    同时在「本地优先 + 可审计安全 + 自有模型接入」上有豆包不具备的差异化优势。
+  </div>
+
+  <div class="card">
+    <h2>1 · 能力成熟度总览（主观评分，示意）</h2>
+    <div class="legend"><span><i style="background:#3b82f6"></i>豆包</span><span><i style="background:#10b981"></i>颤翎子</span><span class="note">数值 = 该能力域成熟度（0–100）</span></div>
+    <div class="bars">
+      <!-- rows injected below -->
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2 · 逐项差距矩阵</h2>
+    <table>
+      <thead><tr><th>能力域</th><th>豆包（2026）</th><th>颤翎子现状</th><th>状态</th><th>差距</th><th>优先级</th></tr></thead>
+      <tbody id="matrix"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>3 · 颤翎子独有优势（豆包不具备）</h2>
+    <div class="adv">
+      <div class="item"><h3>本地优先 · 隐私自主</h3><p>数据全落本机（SQLite + 本地文件），无云端留存；企业/敏感场景可直接部署，这是豆包云服务无法提供的卖点。</p></div>
+      <div class="item"><h3>自有模型自由接入</h3><p>任意 OpenAI 兼容模型可接入（当前 agnes / DeepSeek），不受豆包单一模型生态绑定；能力升级=换模型配置。</p></div>
+      <div class="item"><h3>数据库直连 + 审计安全</h3><p>db_query 直连只读业务库做分析，RPA/Shell 有白名单与熔断，全链路工具审计落库——面向企业的可解释、可追责。</p></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4 · 补齐路线建议（按缺口 × 收益排序）</h2>
+    <div class="roadmap">
+      <div class="phase p0"><h3>P0 · 最优先（2–4 周）</h3>
+        <ul>
+          <li><b>语音交互</b>：语音输入转文字 + 回答语音播报（系统 TTS/STT 即可起步），补"说话即用"</li>
+          <li><b>图像生成工具</b>：接入图像模型，把 generate_image 注册为工具，补齐创作闭环</li>
+          <li><b>表格/图表生成</b>：generate_xlsx + 数据图表渲染，追平 Office 三件套</li>
+          <li><b>用户自定义智能体</b>：复用 P3 引擎，让用户创建/保存/分享角色</li>
+        </ul>
+      </div>
+      <div class="phase p1"><h3>P1 · 中期（1–2 月）</h3>
+        <ul>
+          <li><b>在线可编辑产物</b>：docx/xlsx/pptx 生成后客户端内预览编辑，替代"生成即死文件"</li>
+          <li><b>应用搭建</b>：generate_html 模板化 + 本地预览，向妙搭看齐</li>
+          <li><b>技能生态运营</b>：技能市场 8 → 50+，支持自定义技能上传与安装</li>
+          <li><b>办公平台连接器</b>：飞书/钉钉/企业微信 API 接入</li>
+        </ul>
+      </div>
+      <div class="phase p2"><h3>P2 · 远期（3 月+）</h3>
+        <ul>
+          <li><b>视频生成</b>：接入视频模型（成本高，视模型成本再定）</li>
+          <li><b>屏幕理解</b>：截图问答 / 屏幕上下文（豆包手机助手已做）</li>
+          <li><b>多端与云同步（可选）</b>：权衡隐私卖点，做"本地优先+可选云同步"</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    数据来源（豆包侧）：豆包电脑版官方功能页（doubao.com/download/desktop）、豆包工作 2026-08 技能/连接器/工作伙伴更新、豆包专业版 Office 套件、火山引擎模型矩阵（Seedream/Seedance）、豆包 2026 功能拆解与手机助手报道。
+    颤翎子侧：仓库内工具注册表 / API 路由 / 前端组件实测盘点。成熟度评分为示意，非精确度量。
+  </div>
+</div>
+
+<script>
+const DIMS = [
+  ["基础对话与推理", 95, 78, "接入第三方旗舰模型，能力取决于所选模型", "已有", 2, "低", "换模型即可拉近"],
+  ["长期记忆", 90, 60, "画像/偏好/习惯主动记忆+可管理；P1 已实现基础关键词记忆", "部分", 3, "中", "记忆类型单一、无本地数据检索"],
+  ["语音交互", 92, 5, "语音输入/播报/实时通话/声音克隆/方言", "缺失", 5, "高", "完全空白，最影响体验"],
+  ["图像生成与编辑", 90, 5, "Seedream 生图/抠图/重绘/扩图/证件照", "缺失", 5, "高", "无任何图像工具"],
+  ["视频生成", 85, 0, "Seedance 文生/图生视频+原生音频", "缺失", 5, "中", "成本高，可后置"],
+  ["办公套件（文档/表格/PPT）", 92, 45, "在线可编辑+多人协同+模板库", "部分", 4, "高", "仅本地生成 ppt/html，无表格、无编辑协同"],
+  ["应用/网页搭建", 85, 40, "妙搭零代码应用+部署；本端仅单页 HTML 生成", "部分", 3, "中", "缺模板库与部署"],
+  ["电脑/浏览器操作", 85, 55, "虚拟桌面可视接管；本端 RPA 脚本级自动化", "部分", 3, "中", "无可视化接管"],
+  ["联网搜索与实时信息", 88, 80, "web_search + browser 已具备", "已有", 1, "低", "接近"],
+  ["技能生态", 90, 35, "200+ 官方技能+广场+自定义；本端自建市场 8 技能", "部分", 4, "高", "规模与运营差距最大"],
+  ["连接器/平台打通", 82, 30, "10+ 办公平台；本端仅 LLM/DB/知识连接器", "部分", 3, "中", "无办公平台连接"],
+  ["多智能体协作", 80, 75, "工作伙伴多角色小队；P3 六角色子智能体已闭环", "已有", 1, "低", "差距很小"],
+  ["智能体创建/分享", 85, 10, "用户自定义+广场发布；本端仅内置角色", "缺失", 4, "高", "无用户侧创建与分享"],
+  ["日程/日历/待办", 85, 55, "日历日程提醒；P2 定时任务已近似", "部分", 2, "中", "无日历视图"],
+  ["屏幕理解/多模态上下文", 80, 40, "屏幕问答/截图识图；本端仅图片上传理解", "部分", 3, "中", "无截图/屏幕抓取"],
+  ["多端与云同步", 90, 20, "手机/PC/网页+云同步；本端仅本地桌面", "部分", 4, "低", "本地优先是卖点，需权衡"],
+];
+
+const bars = document.querySelector(".bars");
+bars.innerHTML = DIMS.map(([name, d, c]) => `
+  <div class="bar-row">
+    <div class="lbl">${name}</div>
+    <div class="bar"><i class="doubao" style="width:${d}%"></i><span class="v">${d}</span></div>
+    <div class="bar"><i class="chan" style="width:${c}%"></i><span class="v">${c}</span></div>
+  </div>`).join("");
+
+const pillCls = { "已有":"full", "部分":"part", "缺失":"none" };
+const gapCls = { 5:"gap5", 4:"gap4", 3:"gap3", 2:"gap2", 1:"gap1" };
+document.getElementById("matrix").innerHTML = DIMS.map(([name, d, c, doubao, status, gap, prio, note]) => `
+  <tr>
+    <td class="cap">${name}</td>
+    <td>${doubao}</td>
+    <td>${note}</td>
+    <td><span class="pill ${pillCls[status]}">${status}</span></td>
+    <td class="${gapCls[gap]}">${"●".repeat(gap)}${"○".repeat(5-gap)}</td>
+    <td><span class="tag ${prio==="高"?"hot":prio==="中"?"mid":"low"}">${prio}</span></td>
+  </tr>`).join("");
+</script>
+</body>
+</html>

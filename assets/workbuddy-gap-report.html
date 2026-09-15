@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>颤翎子 AI 助手 × WorkBuddy 能力对标评测</title>
+<style>
+  :root{
+    --bg:#0f1117; --card:#171a23; --card2:#1d2130; --line:#2a2f42;
+    --txt:#e8eaf2; --sub:#9aa3b8; --dim:#5c6478;
+    --green:#34d399; --amber:#fbbf24; --red:#f87171; --blue:#60a5fa; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.6;padding:32px 20px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;font-weight:700;letter-spacing:.5px}
+  .sub{color:var(--sub);font-size:13px;margin-top:6px}
+  .note{color:var(--dim);font-size:12px;margin-top:4px}
+  .verdict{margin-top:20px;background:linear-gradient(135deg,#1a2332,#141c33);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .verdict b{color:var(--green)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-top:20px}
+  .card h2{font-size:17px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card h2 .tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px}
+  .tag.hot{background:rgba(248,113,113,.15);color:var(--red)}
+  .tag.mid{background:rgba(251,191,36,.15);color:var(--amber)}
+  .tag.low{background:rgba(52,211,153,.15);color:var(--green)}
+  .tag.adv{background:rgba(167,139,250,.15);color:var(--purple)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--sub);font-weight:600;font-size:12px;white-space:nowrap}
+  td.cap{font-weight:600;white-space:nowrap;color:var(--txt)}
+  .gap5{color:var(--red);font-weight:700}.gap4{color:var(--red)}.gap3{color:var(--amber)}.gap2{color:var(--amber)}.gap1{color:var(--green)}
+  .gap0{color:var(--blue)}.gapneg{color:var(--purple);font-weight:700}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.full{background:rgba(52,211,153,.15);color:var(--green)}
+  .pill.part{background:rgba(251,191,36,.15);color:var(--amber)}
+  .pill.none{background:rgba(248,113,113,.15);color:var(--red)}
+  .pill.adv{background:rgba(167,139,250,.15);color:var(--purple)}
+  .bars{margin-top:4px}
+  .bar-row{display:grid;grid-template-columns:170px 1fr 1fr;gap:10px;align-items:center;margin-bottom:9px;font-size:12px}
+  .bar-row .lbl{color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar{height:14px;border-radius:7px;background:var(--card2);position:relative;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:7px}
+  .bar .v{position:absolute;right:6px;top:0;font-size:10px;line-height:14px;color:#0b0e14;font-weight:700}
+  .wb i{background:linear-gradient(90deg,#60a5fa,#3b82f6)}
+  .chan i{background:linear-gradient(90deg,#34d399,#10b981)}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--sub);margin-top:4px}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .legend i{width:14px;height:10px;border-radius:3px;display:inline-block}
+  .roadmap{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .phase{background:var(--card2);border-radius:10px;padding:14px}
+  .phase h3{font-size:14px;margin-bottom:8px}
+  .phase.p0 h3{color:var(--red)} .phase.p1 h3{color:var(--amber)} .phase.p2 h3{color:var(--blue)}
+  .phase ul{margin:0;padding-left:18px;font-size:12.5px;color:var(--sub)}
+  .phase li{margin-bottom:5px}
+  .phase li b{color:var(--txt)}
+  .adv{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .adv .item{background:var(--card2);border-radius:10px;padding:14px}
+  .adv .item h3{font-size:14px;color:var(--green);margin-bottom:6px}
+  .adv .item p{font-size:12.5px;color:var(--sub)}
+  .weak{background:var(--card2);border-radius:10px;padding:14px;margin-top:10px}
+  .weak h3{font-size:14px;color:var(--amber);margin-bottom:6px}
+  .weak p{font-size:12.5px;color:var(--sub)}
+  @media(max-width:760px){
+    .roadmap,.adv{grid-template-columns:1fr}
+    .bar-row{grid-template-columns:100px 1fr 1fr}
+    td.cap{white-space:normal}
+  }
+  .foot{margin-top:24px;color:var(--dim);font-size:11.5px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>颤翎子 AI 助手 × WorkBuddy 能力对标评测</h1>
+  <div class="sub">评测基准：腾讯 WorkBuddy（2026-09 全功能）｜对象：颤翎子 AI 助手（类 WorkBuddy 私有化桌面智能体 v2）</div>
+  <div class="note">成熟度评分为主观评估（0–100），用于示意差距方向，非官方度量。WorkBuddy 信息来自官网/腾讯云开发者社区/官方文档/第三方实测，见文末。</div>
+
+  <div class="verdict">
+    <b>一句话结论：</b>颤翎子作为"WorkBuddy 的私有化平替"，<b>智能体执行内核已对齐约 85%</b>（任务闭环、多 Agent 并行、定时、中断恢复都已具备）；
+    差距集中在四个产品化层：<b>① 三种工作模式（Craft/Plan/Ask）② 办公产物深度（Excel/可编辑 Word/PPT 配图表）③ 连接器生态（腾讯文档/企微/钉钉等）④ 技能与专家生态规模</b>；
+    而"数据不出内网 + 全链路审计 + 自有模型接入 + 数据库直连"是 WorkBuddy 都不具备的差异化护城河。
+  </div>
+
+  <div class="card">
+    <h2>1 · 能力成熟度总览（主观评分，示意）</h2>
+    <div class="legend"><span><i style="background:#3b82f6"></i>WorkBuddy</span><span><i style="background:#10b981"></i>颤翎子</span><span class="note">数值 = 成熟度 0–100；紫色条=颤翎子反超</span></div>
+    <div class="bars"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 · 逐项差距矩阵</h2>
+    <table>
+      <thead><tr><th>能力域</th><th>WorkBuddy（2026）</th><th>颤翎子现状</th><th>状态</th><th>差距</th><th>优先级</th></tr></thead>
+      <tbody id="matrix"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>3 · 颤翎子独有优势（WorkBuddy 不具备）</h2>
+    <div class="adv">
+      <div class="item"><h3>数据不出内网（核心定位）</h3><p>自托管 Ollama/vLLM 或私有化商业模型 API，双模式接入；企业敏感数据零外流，WorkBuddy 是云服务+积分制，无法私有化。</p></div>
+      <div class="item"><h3>可审计、可追责</h3><p>全链路工具审计落库 + 熔断 + 操作级权限 + 钥匙串加密，满足企业合规；WorkBuddy 无同等审计深度。</p></div>
+      <div class="item"><h3>数据库直连 + 自有生态</h3><p>db_query 只读直连业务库做分析；技能市场自主运营（GitHub Pages），不绑定任何平台生态。</p></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4 · WorkBuddy 的短板（颤翎子的反超机会）</h2>
+    <div class="weak">
+      <h3>① 手机端语音识别弱（第三方实测：专业词汇错字多、长段口述需二次校对）</h3>
+      <p>颤翎子如果先把"本地语音输入+精准转写"做扎实，就能在语音这条线上反超——WorkBuddy 在这里是公开短板。</p>
+    </div>
+    <div class="weak">
+      <h3>② 依赖腾讯生态登录与连接器</h3>
+      <p>微信/企业微信扫码登录、连接器优先腾讯系；非腾讯用户覆盖弱。颤翎子做"多云/多平台连接器 + 本地账号"即可差异化。</p>
+    </div>
+    <div class="weak">
+      <h3>③ 积分制限制重度使用</h3>
+      <p>免费 500 积分/月、签到攒积分；颤翎子自有模型接入无用量限制，重度办公场景是优势。</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>5 · 补齐路线建议（以 WorkBuddy 为对标）</h2>
+    <div class="roadmap">
+      <div class="phase p0"><h3>P0 · 最优先（2–4 周）</h3>
+        <ul>
+          <li><b>三种工作模式</b>：Craft（直接干）/ Plan（先计划后确认）/ Ask（只答不动）——WorkBuddy 最核心的产品体验，颤翎子目前只有"自动"</li>
+          <li><b>Excel/表格生成</b>：generate_xlsx + 图表，补齐办公三件套</li>
+          <li><b>可编辑 Word 交付</b>：docx 生成（当前只有 doc_to_html）</li>
+          <li><b>技能安全分级</b>：高危技能安装需人工确认（对齐 WorkBuddy 安全扫描）</li>
+        </ul>
+      </div>
+      <div class="phase p1"><h3>P1 · 中期（1–2 月）</h3>
+        <ul>
+          <li><b>专家市场</b>：角色从 6 个扩到 20+，支持用户自定义专家并互相 review</li>
+          <li><b>连接器</b>：飞书/钉钉/企业微信/腾讯文档 API 接入</li>
+          <li><b>记忆结构化升级</b>：工作背景/个人背景/当前关注维度（对齐 WorkBuddy 记忆模型）</li>
+          <li><b>远程触发</b>：最简单形态 = 开放 HTTP/邮件接口，手机经 IM 触发桌面任务</li>
+        </ul>
+      </div>
+      <div class="phase p2"><h3>P2 · 远期（3 月+）</h3>
+        <ul>
+          <li><b>多端完善</b>：Windows 分发成熟（已有 release/win 链路）、Linux/UOS</li>
+          <li><b>在线网页版</b>：浏览器使用入口</li>
+          <li><b>本地语音</b>：语音输入+播报（反超点，WorkBuddy 语音弱）</li>
+          <li><b>硬件生态（可选）</b>：录音笔/耳机联动，重投入、非核心</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    数据来源（WorkBuddy 侧）：workbuddy.cn 官网、腾讯云开发者社区《WorkBuddy 深度体验》（三模式/多专家/内置运行环境）、workbuddy.ai 官方文档（任务/对话/中断恢复）、36氪《WorkBuddy 开放生态》（硬件 30+ 品牌）、腾讯云海外指南（远程操控/Office 多格式）、第三方实测（手机端语音短板）。
+    颤翎子侧：仓库工具注册表 / API 路由 / 前端组件 / P0–P3 功能实测盘点。成熟度评分为示意，非精确度量。
+  </div>
+</div>
+
+<script>
+const DIMS = [
+  ["任务闭环与三种模式", 95, 60, "Craft/Plan/Ask 三模式（你说我做/先想后做/只问不做）", "P0 计划-执行-验证已闭环，但只有'自动'，无模式选择", "部分", 3, "高"],
+  ["本地文件与批量操作", 90, 85, "授权目录读写、批量改名/归类/转换", "filesystem + shell + rpa 已具备", "已有", 1, "低"],
+  ["办公产物深度（Excel/Word/PPT/PDF）", 92, 45, "本地调用 Excel/PPT 应用、透视表图表、可编辑 Word、PDF 提取", "仅 generate_ppt / doc_to_html；无 Excel、无可编辑 Word", "部分", 4, "高"],
+  ["代码开发闭环", 88, 70, "内置 Python/Node 环境，生成-运行-报错自动迭代", "code + shell 可执行，但无专有运行环境与自动迭代展示", "部分", 2, "中"],
+  ["技能体系", 90, 40, "SkillHub 下载+自写+安全分级（高危人工确认）", "自建市场 8 技能+安装，无安全分级", "部分", 4, "高"],
+  ["专家体系", 85, 65, "架构师/前端/后端/测试/PM 等多专家互相 review", "P3 六角色（研究员/写手/审稿/编程/分析/助理）", "部分", 2, "中"],
+  ["连接器生态", 88, 25, "腾讯文档/会议/企微/钉钉/微信 + Slack/TG/Discord", "仅 LLM/DB/知识/MCP 连接器，无办公平台", "缺失", 4, "高"],
+  ["记忆管理", 85, 60, "工作背景/个人背景/当前关注/近期动态，摘要持续更新", "P1 关键词记忆（preference/fact/conclusion）", "部分", 2, "中"],
+  ["任务中断/恢复/续跑", 85, 85, "Stop/Interrupt/Resume、基于已有进展继续", "P0 后台任务取消/续跑已具备", "已有", 1, "低"],
+  ["定时自动化", 85, 85, "定时写周报/追热点/发社媒", "P2 定时任务（at/interval/daily/weekly/hourly）", "已有", 1, "低"],
+  ["浏览器/网页操作", 85, 85, "网页抓取（滚动/点击）", "browser + rpa 已具备", "已有", 1, "低"],
+  ["多 Agent 并行", 85, 80, "专家团队并行执行+互相 review", "P3 subagent 并行委派已具备；缺互评模式", "已有", 1, "低"],
+  ["多端覆盖", 90, 40, "Mac/Win/Linux/UOS/鸿蒙/iOS/Android/在线", "Mac 为主，Win 有分发链路未成熟", "部分", 3, "中"],
+  ["远程操控（手机经 IM 触发）", 80, 0, "企微/钉钉/微信/Slack/TG/DC 触发桌面", "无", "缺失", 4, "中"],
+  ["硬件生态", 70, 0, "智能眼镜/录音/耳机/PC，30+ 品牌联动", "无", "缺失", 5, "低"],
+  ["账号/订阅/积分", 85, 45, "微信扫码+个人/企业版+积分制", "本地身份 + SSO 后端（未产品化）", "部分", 2, "低"],
+  ["私有化与数据安全", 70, 92, "云服务为主，企业私有化方案相关讨论", "数据不出内网+审计+熔断+钥匙串（核心卖点）", "反超", 0, "低"],
+  ["语音交互", 50, 0, "手机端语音识别弱（第三方实测短板）", "无语音（若先做准，可反超）", "缺失", 3, "中"],
+  ["在线网页版", 80, 0, "浏览器在线使用", "无", "缺失", 4, "低"],
+];
+
+const bars = document.querySelector(".bars");
+bars.innerHTML = DIMS.map(([name, w, c]) => {
+  const over = c > w;
+  return `<div class="bar-row">
+    <div class="lbl">${name}</div>
+    <div class="bar"><i class="wb" style="width:${w}%"></i><span class="v">${w}</span></div>
+    <div class="bar"><i class="${over?'chan over':''}" style="width:${c}%;${over?'background:linear-gradient(90deg,#a78bfa,#8b5cf6)':''}"></i><span class="v">${c}</span></div>
+  </div>`;
+}).join("");
+
+const pillCls = { "已有":"full", "部分":"part", "缺失":"none", "反超":"adv" };
+const gapCls = { 5:"gap5", 4:"gap4", 3:"gap3", 2:"gap2", 1:"gap1", 0:"gapneg" };
+document.getElementById("matrix").innerHTML = DIMS.map(([name, w, c, wb, chan, status, gap, prio]) => {
+  const g = status === "反超" ? 0 : gap;
+  return `<tr>
+    <td class="cap">${name}</td>
+    <td>${wb}</td>
+    <td>${chan}</td>
+    <td><span class="pill ${pillCls[status]}">${status}</span></td>
+    <td class="${gapCls[g]}">${status==="反超"?"▲反超":"●".repeat(g)+"○".repeat(5-g)}</td>
+    <td><span class="tag ${prio==="高"?"hot":prio==="中"?"mid":"low"}">${prio}</span></td>
+  </tr>`;
+}).join("");
+</script>
+</body>
+</html>

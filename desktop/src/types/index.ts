@@ -55,7 +55,7 @@ export interface ToolCall {
 }
 
 export interface SSEEvent {
-  type: 'meta' | 'thinking' | 'tool_call' | 'tool_result' | 'plan' | 'text' | 'done' | 'error'
+  type: 'meta' | 'thinking' | 'tool_call' | 'tool_result' | 'plan' | 'plan_awaiting_confirm' | 'text' | 'done' | 'error'
   data: any
 }
 

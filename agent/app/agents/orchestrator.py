@@ -86,6 +86,36 @@ def _is_promise_text(text: str) -> bool:
     return False
 
 
+# ── P0.5 三种工作模式（对齐 WorkBuddy Craft/Plan/Ask）────────────────
+WORK_MODE_CRAFT = "craft"   # 你说我做：直接执行
+WORK_MODE_PLAN = "plan"     # 先想后做：先建计划，用户确认后再执行
+WORK_MODE_ASK = "ask"       # 只问不做：纯问答，不调用工具、不改动任何东西
+
+_MODE_HINTS = {
+    WORK_MODE_PLAN: (
+        "\n\n## 当前工作模式：Plan（先想后做）\n"
+        "- 需要多步执行的任务，第一步必须调用 create_plan 建立分步计划，然后立即停止，"
+        "等待用户确认后再执行。\n"
+        "- 用户确认前，禁止调用任何执行类工具（filesystem/shell/code/db_query/web_search 等），"
+        "只能使用 create_plan / update_plan。\n"
+        "- 简单问题（无需工具即可回答）可直接回答，不需要建计划。"
+    ),
+    WORK_MODE_ASK: (
+        "\n\n## 当前工作模式：Ask（只问不做）\n"
+        "- 只回答问题与提供建议，禁止调用任何工具，禁止创建/修改/删除任何文件或数据。\n"
+        "- 即使任务看起来需要执行（如「帮我整理文件」「写个脚本」），也只能说明你会怎么做，"
+        "不能实际执行。"
+    ),
+}
+
+# Plan 模式未确认前唯一允许的工具
+_PLAN_GATE_TOOLS = ("create_plan", "update_plan")
+_PLAN_GATE_BLOCKED_MSG = (
+    "【Plan 模式】用户尚未确认计划，此工具调用未执行。"
+    "请先用 create_plan 建立分步计划并等待用户确认，不要执行任何操作。"
+)
+
+
 class AgentState:
     """Agent 状态（用类代替 TypedDict，避免强依赖 langgraph）。"""
 
@@ -341,6 +371,8 @@ class AgentOrchestrator:
         attachment_paths: Optional[list[str]] = None,
         workspace_dir: str = "",
         cancel_event: Optional[asyncio.Event] = None,
+        mode: str = "craft",
+        plan_confirmed: bool = False,
     ) -> AsyncIterator[dict]:
         """主入口：流式运行 Agent 循环，产出 SSE 兼容事件。
 
@@ -354,6 +386,10 @@ class AgentOrchestrator:
                 filesystem 工具读取这些原始文件（如 docx 用 doc_to_html 转换）。
             cancel_event: 后台任务取消信号；置位后下一轮循环前停止并产出
                 cancelled 事件（供 /api/tasks/cancel 使用）。None 表示不可取消。
+            mode: P0.5 工作模式 craft/plan/ask（对齐 WorkBuddy）：
+                craft=直接执行；plan=先建计划等待用户确认；ask=只答不动。
+            plan_confirmed: Plan 模式下用户已确认计划（第二轮请求置 True，
+                此后放行全部工具正常执行）。
         """
 
         # system prompt 不进 messages：它由 ContextManager.build_context 经
@@ -459,6 +495,19 @@ class AgentOrchestrator:
         # 收到 tools 参数会直接 400，因此按能力探测结果决定。
         tool_schemas: list[dict] | None = None
         tools_enabled = model_supports_tools(target_model)
+
+        # ── P0.5 工作模式初始化 ──
+        _work_mode = mode if mode in (WORK_MODE_CRAFT, WORK_MODE_PLAN, WORK_MODE_ASK) else WORK_MODE_CRAFT
+        _plan_confirmed = bool(plan_confirmed)
+        # 模式提示词并入本轮 system（不污染缓存编排器的固定 system_prompt）
+        _effective_system = self.system_prompt + _MODE_HINTS.get(_work_mode, "")
+        if _work_mode == WORK_MODE_ASK:
+            # Ask 模式：只答不动 —— 直接关闭工具挂载，模型拿不到任何工具 schema
+            tools_enabled = False
+            logger.info("[agent] Ask 模式：工具已禁用，仅问答")
+        elif _work_mode == WORK_MODE_PLAN and not _plan_confirmed:
+            logger.info("[agent] Plan 模式：等待用户确认计划，仅放行计划类工具")
+
         # 单次会话内的工具调用去重缓存（跨会话不复用，避免结果过期）
         tool_call_cache: dict[str, str] = {}
         # 同工具连续调用计数：小模型常见失效模式是反复调用同一工具
@@ -509,7 +558,7 @@ class AgentOrchestrator:
 
             # ── 上下文预算裁剪 ──
             context = self.cm.build_context(
-                system_prompt=self.system_prompt,
+                system_prompt=_effective_system,
                 messages=state.messages,
             )
 
@@ -669,13 +718,60 @@ class AgentOrchestrator:
             # （实测出现同一路径连续调用 6 次），每次都要等一轮完整推理，
             # 既拖慢响应又消耗上下文预算。这里识别完全重复的调用，
             # 命中时直接复用上次结果，不再真正执行。
-            tool_results = await self._tool_node.execute(
-                all_tool_calls,
-                cache=tool_call_cache,
-                conversation_id=conversation_id,
-                session_id=session_id,
-                identity=identity,
-            )
+            #
+            # P0.5 Plan 门控：未确认前只放行 create_plan/update_plan，
+            # 其余工具调用不执行，返回"等待确认"结果（防模型越权先干）。
+            _plan_gate_active = _work_mode == WORK_MODE_PLAN and not _plan_confirmed
+            if _plan_gate_active:
+                _real: list[tuple[int, dict]] = []
+                _blocked: list[tuple[int, dict]] = []
+                for _i, _tc in enumerate(all_tool_calls):
+                    _nm = _tc.get("function", {}).get("name", "")
+                    (_real if _nm in _PLAN_GATE_TOOLS else _blocked).append((_i, _tc))
+                if _blocked:
+                    _blocked_map = {
+                        i: {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", f"call_{i}"),
+                            "content": _PLAN_GATE_BLOCKED_MSG,
+                        }
+                        for i, tc in _blocked
+                    }
+                    if _real:
+                        _real_idx = [i for i, _ in _real]
+                        _real_res = await self._tool_node.execute(
+                            [tc for _, tc in _real],
+                            cache=tool_call_cache,
+                            conversation_id=conversation_id,
+                            session_id=session_id,
+                            identity=identity,
+                        )
+                        tool_results = []
+                        _ri = 0
+                        for _i in range(len(all_tool_calls)):
+                            if _i in _blocked_map:
+                                tool_results.append(_blocked_map[_i])
+                            else:
+                                tool_results.append(_real_res[_ri])
+                                _ri += 1
+                    else:
+                        tool_results = [_blocked_map[i] for i in sorted(_blocked_map)]
+                else:
+                    tool_results = await self._tool_node.execute(
+                        all_tool_calls,
+                        cache=tool_call_cache,
+                        conversation_id=conversation_id,
+                        session_id=session_id,
+                        identity=identity,
+                    )
+            else:
+                tool_results = await self._tool_node.execute(
+                    all_tool_calls,
+                    cache=tool_call_cache,
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    identity=identity,
+                )
 
             # P0：透传本轮工具执行中产生的计划事件（create_plan/update_plan）
             for _plan_ev in _plan_bus.take_events():
@@ -719,6 +815,24 @@ class AgentOrchestrator:
                     _tr["content"] = self.cm.truncate_tool_result(_c)
             state.messages.extend(tool_results)
             state.tool_results.extend(tool_results)
+
+            # P0.5 Plan 模式：计划已建立（PlanBus 有步骤）且未确认 →
+            # 产出「等待确认」事件并停止本轮，等用户点确认后再续跑。
+            if (
+                _plan_gate_active
+                and _plan_bus.steps
+                and any(
+                    tc.get("function", {}).get("name", "") == "create_plan"
+                    for tc in all_tool_calls
+                )
+            ):
+                _snap = _plan_bus.snapshot()
+                yield {
+                    "type": "plan_awaiting_confirm",
+                    "goal": _snap.get("goal", ""),
+                    "steps": _snap.get("steps", []),
+                }
+                break
 
             # ── 同工具连续调用检测（防循环）──
             # 小模型在 coding / 分析类任务上容易陷入「同一工具换不同参数反复调」

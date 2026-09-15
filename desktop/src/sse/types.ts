@@ -1,6 +1,6 @@
 import type { Conversation, Message, ModelInfo, FileAttachment } from '../types'
 
-/** SSE 事件类型（对齐规格书 §7.1；plan 为 P0 智能体计划事件） */
+/** SSE 事件类型（对齐规格书 §7.1；plan 为 P0 智能体计划事件；plan_awaiting_confirm 为 P0.5 Plan 模式待确认事件） */
 export type SSEEventType =
   | 'meta'
   | 'thinking'
@@ -8,6 +8,7 @@ export type SSEEventType =
   | 'tool_result'
   | 'citation'
   | 'plan'
+  | 'plan_awaiting_confirm'
   | 'text'
   | 'done'
   | 'error'
@@ -17,6 +18,9 @@ export interface SSEEvent {
   type: SSEEventType
   data: Record<string, unknown> | null
 }
+
+/** P0.5 三种工作模式（对齐 WorkBuddy Craft/Plan/Ask） */
+export type WorkMode = 'craft' | 'plan' | 'ask'
 
 /** 流式对话请求参数 */
 export interface ChatStreamParams {
@@ -31,6 +35,10 @@ export interface ChatStreamParams {
   mode?: 'chat' | 'work'
   /** 工作模式下绑定的工作目录绝对路径（文件/shell 操作的根） */
   workspaceDir?: string
+  /** P0.5 工作模式：craft=直接执行 / plan=先计划后确认 / ask=只答不动 */
+  workMode?: WorkMode
+  /** Plan 模式下用户已确认计划（第二轮请求置 True） */
+  planConfirmed?: boolean
 }
 
 /** 流式回调集合 */

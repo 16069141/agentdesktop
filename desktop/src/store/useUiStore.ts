@@ -37,6 +37,10 @@ interface UiState {
   modeCurrentIds: Record<'chat' | 'work', string | null>
   setChatMode: (mode: 'chat' | 'work') => void
 
+  // P0.5 三种工作模式（对齐 WorkBuddy Craft/Plan/Ask）
+  workMode: 'craft' | 'plan' | 'ask'
+  setWorkMode: (mode: 'craft' | 'plan' | 'ask') => void
+
   // 当前工作目录（工作模式下与会话联动：新建会话绑定它、切回会话恢复它）
   workspaceDir: string
   setWorkspaceDir: (dir: string) => void
@@ -122,6 +126,10 @@ export const useUiStore = create<UiState>()(
         })),
       setCurrentConversationId: (id) => set({ currentConversationId: id }),
       setConversations: (convs) => set({ conversations: convs }),
+
+      // P0.5 三种工作模式
+      workMode: 'craft',
+      setWorkMode: (mode) => set({ workMode: mode }),
 
       // 当前工作目录路径（持久化，作为新建会话/发消息/选择器的共享事实来源）
       workspaceDir: '',
@@ -256,6 +264,7 @@ export const useUiStore = create<UiState>()(
         currentModelId: state.currentModelId,
         workspaceDir: state.workspaceDir,
         workspaces: state.workspaces,
+        workMode: state.workMode,
       }),
     }
   )

@@ -38,6 +38,12 @@ v2/
 
 已有工具：`filesystem`（read/write/list/search）、`shell`、`knowledge`、`code`、`browser`、`db_query`、`rpa`、`doc_to_html`（mammoth）、`generate_ppt`（python-pptx）、`create_plan`/`update_plan`（P0 计划-执行-验证，状态挂请求级 PlanBus）、`subagent`（P3 多智能体委派）。
 
+## P0.5 三种工作模式（craft / plan / ask，对齐 WorkBuddy）
+
+- `orchestrator.run_stream(mode=, plan_confirmed=)`：craft=直接执行（默认）；ask=关闭工具 schema（tools_enabled=False），纯问答；plan=未确认前工具门控只放行 `create_plan`/`update_plan`（`_PLAN_GATE_TOOLS`），其余调用返回「等待确认」占位结果不执行；计划建立后产出 `plan_awaiting_confirm` 事件（载荷同 plan 事件：goal+steps）并 break 本轮。
+- `chat.py` ChatRequest 新增 `work_mode` / `plan_confirmed` 字段透传；Ask 模式跳过 P1 记忆提取写入。
+- 前端：useUiStore.workMode（持久化）、ChatView 顶栏三模式切换器 + plan_awaiting_confirm 确认条（点「开始执行」以 plan_confirmed=true 重发续跑）。后台任务路径 tasks.py 暂不带模式（恒 craft）。
+
 ## P3 多智能体（subagents/）
 
 - `agent/app/subagents/__init__.py`：6 角色（researcher/writer/reviewer/coder/analyst/assistant）各带独立 system prompt + 受限工具集；`run_subagent()` 惰性导入 `AgentOrchestrator`（**类名不是 Orchestrator**，orchestrator.py:261），新建受限工具注册表后复用 `run_stream` 跑子智能体；嵌套深度上限 2（`_depth_var`）。

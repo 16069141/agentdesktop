@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useUiStore } from '../../store/useUiStore'
 import { api } from '../../api'
 import { streamChat } from '../../sse/sseClient'
+import type { WorkMode } from '../../sse/types'
 import MessageItem from './MessageItem'
 import InputBox from './InputBox'
 import type { Message, TraceItem, Citation, FileAttachment, PlanStep } from '../../types'
@@ -57,6 +58,8 @@ const ChatView: React.FC = () => {
     chatMode,
     setChatMode,
     setWorkspaceDir,
+    workMode,
+    setWorkMode,
   } = useUiStore()
 
   /** 每条助理消息的事件时间线 */
@@ -64,6 +67,8 @@ const ChatView: React.FC = () => {
   const [citations, setCitations] = useState<Record<string, Citation[]>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
   const [tokenHint, setTokenHint] = useState('剩余 14,200 / 16,384 tokens')
+  /** P0.5 Plan 模式：等待用户确认的计划（goal + 步骤清单） */
+  const [pendingConfirm, setPendingConfirm] = useState<{ goal: string; steps: PlanStep[] } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   /** 各助理消息已收集的交付文件路径（跨 tool_result 事件累积去重） */
@@ -155,8 +160,9 @@ const ChatView: React.FC = () => {
     if (!currentConversationId || isCurrentStreaming) return
     if (!text.trim() && (!images || images.length === 0) && (!attachments || attachments.length === 0)) return
 
-    // P0 后台执行：任务放后台，走 launch + 轮询，不占流式通道
-    if (bgMode) {
+    // P0 后台执行：任务放后台，走 launch + 轮询，不占流式通道。
+    // Plan/Ask 模式必须走前台流式（后台任务暂不携带工作模式，保持 craft 语义）
+    if (bgMode && workMode === 'craft') {
       await bgSend(text, images, attachments)
       return
     }
@@ -352,7 +358,13 @@ const ChatView: React.FC = () => {
   }
 
   /** 发起 SSE 流式请求（按 conversationId 独立管理，切换对话不中断） */
-  const runStream = async (text: string, assistantId: string, images?: string[], attachments?: FileAttachment[]) => {
+  const runStream = async (
+    text: string,
+    assistantId: string,
+    images?: string[],
+    attachments?: FileAttachment[],
+    opts?: { workMode?: WorkMode; planConfirmed?: boolean }
+  ) => {
     const conversationId = currentConversationId
     if (!conversationId) return
 
@@ -429,6 +441,9 @@ const ChatView: React.FC = () => {
         mode: chatMode,
         // 工作模式下携带当前工作目录，agent 的文件/shell 操作在此目录下进行
         workspaceDir: chatMode === 'work' ? useUiStore.getState().workspaceDir : '',
+        // P0.5 三种工作模式：craft/plan/ask；Plan 确认轮显式传 planConfirmed
+        workMode: opts?.workMode ?? workMode,
+        planConfirmed: opts?.planConfirmed ?? false,
       },
       {
         onEvent: (event) => {
@@ -510,6 +525,22 @@ const ChatView: React.FC = () => {
               break
             }
 
+            case 'plan_awaiting_confirm': {
+              // P0.5 Plan 模式：计划已建好，等待用户确认（渲染确认条）
+              flushNow()
+              const steps = (Array.isArray(data.steps) ? data.steps : []) as PlanStep[]
+              if (steps.length > 0) {
+                updateMessageInConversation(conversationId, assistantId, {
+                  plan: steps,
+                })
+              }
+              setPendingConfirm({
+                goal: String(data.goal ?? ''),
+                steps,
+              })
+              break
+            }
+
             case 'text': {
               const delta = String(data.delta ?? data.text ?? data.content ?? '')
               if (!delta) break
@@ -584,6 +615,34 @@ const ChatView: React.FC = () => {
     }
   }
 
+  /** P0.5 Plan 模式：用户确认计划 → 以 plan_confirmed=true 续跑执行 */
+  const handlePlanConfirm = async () => {
+    if (!pendingConfirm || !currentConversationId || isCurrentStreaming) return
+    const { goal, steps } = pendingConfirm
+    setPendingConfirm(null)
+    const assistantId = `local-assistant-${Date.now()}`
+    const assistantMsg: Message = {
+      id: assistantId,
+      conversationId: currentConversationId,
+      role: 'assistant',
+      content: '',
+      modelId: currentModelId,
+      createdAt: Date.now(),
+    }
+    appendMessage(assistantMsg)
+    // 复用计划步骤到新消息卡片，保持视觉连续
+    if (steps.length > 0) {
+      updateMessageInConversation(currentConversationId, assistantId, { plan: steps })
+    }
+    await runStream(
+      `[用户已确认计划，开始执行] ${goal || '按计划执行'}`,
+      assistantId,
+      undefined,
+      undefined,
+      { workMode: 'plan', planConfirmed: true }
+    )
+  }
+
   /** 导出当前会话为 Markdown 文件（P1-2） */
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState('')
@@ -651,8 +710,39 @@ const ChatView: React.FC = () => {
             </button>
           )
         })}
-        <div className="ml-auto text-xs" style={{ color: 'var(--text-faint)' }}>
-          {chatMode === 'chat' ? '对话分区 · 上下文与工作分区隔离' : '工作分区 · 上下文与对话分区隔离'}
+        <div className="ml-auto flex items-center gap-3">
+          {/* P0.5 三种工作模式：直接执行 / 先计划 / 只问答（对齐 WorkBuddy Craft/Plan/Ask） */}
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { id: 'craft' as const, label: '直接执行', desc: '你说我做' },
+                { id: 'plan' as const, label: '先计划', desc: '确认后执行' },
+                { id: 'ask' as const, label: '只问答', desc: '不动文件' },
+              ]
+            ).map((m) => {
+              const active = workMode === m.id
+              return (
+                <button
+                  key={m.id}
+                  className="px-2.5 py-1 rounded-lg text-xs transition-colors"
+                  style={{
+                    background: active ? 'var(--bg-elev)' : 'transparent',
+                    color: active ? 'var(--text)' : 'var(--text-faint)',
+                    border: active ? '1px solid var(--border)' : '1px solid transparent',
+                    cursor: 'pointer',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                  onClick={() => setWorkMode(m.id)}
+                  title={m.desc}
+                >
+                  {m.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            {chatMode === 'chat' ? '对话分区 · 上下文与工作分区隔离' : '工作分区 · 上下文与对话分区隔离'}
+          </div>
         </div>
       </div>
 
@@ -771,6 +861,52 @@ const ChatView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* P0.5 Plan 模式：计划待确认条（确认后以 plan_confirmed=true 续跑执行） */}
+      {pendingConfirm && !isCurrentStreaming && (
+        <div className="px-4 pb-2 max-w-3xl mx-auto w-full">
+          <div
+            className="rounded-xl px-4 py-3 flex items-center justify-between gap-3"
+            style={{
+              background: 'var(--accent-soft)',
+              border: '1px solid var(--accent)',
+              color: 'var(--text)',
+            }}
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">计划已生成，确认后开始执行</div>
+              <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-dim)' }}>
+                {pendingConfirm.goal || `${pendingConfirm.steps.length} 个步骤`}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                className="text-xs px-3 py-1.5 rounded-lg"
+                style={{
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--border-soft)',
+                  color: 'var(--text-dim)',
+                  cursor: 'pointer',
+                }}
+                onClick={() => setPendingConfirm(null)}
+              >
+                修改
+              </button>
+              <button
+                className="text-xs px-3 py-1.5 rounded-lg font-medium"
+                style={{
+                  background: 'var(--accent)',
+                  color: 'var(--accent-ink)',
+                  cursor: 'pointer',
+                }}
+                onClick={handlePlanConfirm}
+              >
+                开始执行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <InputBox
         onSend={handleSend}

@@ -17,6 +17,7 @@ const KNOWN_EVENT_TYPES: SSEEventType[] = [
   'tool_result',
   'citation',
   'plan',
+  'plan_awaiting_confirm',
   'text',
   'done',
   'error',
@@ -206,6 +207,8 @@ export async function streamChat(
         attachments: params.attachments || [],
         mode: params.mode || 'chat',
         workspace_dir: params.workspaceDir || '',
+        work_mode: params.workMode || 'craft',
+        plan_confirmed: params.planConfirmed || false,
       }),
       signal,
     })

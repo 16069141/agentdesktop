@@ -366,6 +366,10 @@ class ChatRequest(BaseModel):
     attachments: list[Attachment] = []
     mode: str = "chat"
     workspace_dir: str = ""
+    # P0.5 三种工作模式（对齐 WorkBuddy Craft/Plan/Ask）
+    work_mode: str = "craft"
+    # Plan 模式下用户已确认计划（第二轮请求置 True，放行全部工具）
+    plan_confirmed: bool = False
 
 
 def _sse(event: str, data: Any) -> bytes:
@@ -384,6 +388,8 @@ async def _generate_reply(
     attachment_paths: list[str] | None = None,
     mode: str = "chat",
     workspace_dir: str = "",
+    work_mode: str = "craft",
+    plan_confirmed: bool = False,
 ) -> AsyncIterator[dict]:
     """Phase 3: 使用 AgentOrchestrator 生成真实回复（流式）。"""
     try:
@@ -404,6 +410,8 @@ async def _generate_reply(
             images=images,
             attachment_paths=attachment_paths,
             workspace_dir=workspace_dir,
+            mode=work_mode,
+            plan_confirmed=plan_confirmed,
         ):
             yield event
     except Exception as exc:
@@ -423,6 +431,8 @@ async def _event_stream(
     attachments: list[Attachment] | None = None,
     mode: str = "chat",
     workspace_dir: str = "",
+    work_mode: str = "craft",
+    plan_confirmed: bool = False,
 ) -> AsyncIterator[bytes]:
     """产出 SSE 字节流，并在客户端断开时及时停止。"""
     collected: list[str] = []
@@ -460,6 +470,8 @@ async def _event_stream(
                 attachment_paths=attach_paths or None,
                 mode=mode,
                 workspace_dir=workspace_dir,
+                work_mode=work_mode,
+                plan_confirmed=plan_confirmed,
             ):
                 if await request.is_disconnected():
                     aborted = True
@@ -489,6 +501,15 @@ async def _event_stream(
                     # P0 计划事件：步骤清单/状态变更，前端渲染计划卡片
                     yield _sse(
                         "plan",
+                        {
+                            "goal": event.get("goal", ""),
+                            "steps": event.get("steps", []),
+                        },
+                    )
+                elif etype == "plan_awaiting_confirm":
+                    # P0.5 Plan 模式：计划已建好，等用户确认后继续执行
+                    yield _sse(
+                        "plan_awaiting_confirm",
                         {
                             "goal": event.get("goal", ""),
                             "steps": event.get("steps", []),
@@ -607,11 +628,12 @@ async def _event_stream(
         except Exception as exc:  # noqa: BLE001
             print(f"[chat] usage_log 写入失败: {exc}", flush=True)
 
-        # P1 长期记忆：本轮回复完成后后台提取候选记忆（静默失败，不阻塞主流程）
+        # P1 长期记忆：本轮回复完成后后台提取候选记忆（静默失败，不阻塞主流程）。
+        # Ask 模式（只问不做）不写记忆 —— 该模式承诺不修改任何数据。
         try:
             from ..memory import extract_from_pair, memory_enabled
 
-            if memory_enabled() and final_text.strip():
+            if work_mode != "ask" and memory_enabled() and final_text.strip():
                 asyncio.ensure_future(
                     extract_from_pair(
                         user_message, final_text, conversation_id, model_id
@@ -743,6 +765,8 @@ async def chat(req: ChatRequest, request: Request):
             attachments=req.attachments or [],
             mode=req.mode if req.mode in ("chat", "work") else "chat",
             workspace_dir=workspace_dir,
+            work_mode=req.work_mode if req.work_mode in ("craft", "plan", "ask") else "craft",
+            plan_confirmed=bool(req.plan_confirmed),
         ),
         media_type="text/event-stream; charset=utf-8",
         headers={
