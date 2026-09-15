@@ -44,6 +44,14 @@ v2/
 - `chat.py` ChatRequest 新增 `work_mode` / `plan_confirmed` 字段透传；Ask 模式跳过 P1 记忆提取写入。
 - 前端：useUiStore.workMode（持久化）、ChatView 顶栏三模式切换器 + plan_awaiting_confirm 确认条（点「开始执行」以 plan_confirmed=true 重发续跑）。后台任务路径 tasks.py 暂不带模式（恒 craft）。
 
+## P0.7 图像生成工具（generate_image，OpenAI 兼容端点）
+
+- `agent/app/tools/image_tools.py`：GenerateImageTool，POST `{base_url}/images/generations`（Bearer key），支持火山方舟 Seedream / OpenRouter 等任何兼容服务；产物落盘 `data/uploads/images/img-*.png`，返回 `path`（进交付卡片）+ `url`（`/api/files/images/{name}`，前端 `<img>` 预览）。
+- 配置：settings.json `image_api.{base_url,model}`（PUT /api/settings 白名单字段 `image_api`/`image_api_key`）；Key 存钥匙串 ref=`image-api:key`（macOS keyring 无 list API，`keychain.list_keys()` 恒空，验证用 `keyring.get_password('private-ai-agent', ref)` 直接读）。
+- 未配置 → 工具返回 success=false + 设置引导（不抛错，模型知道能力存在）。
+- 前端：`ImageGenManager.tsx`（设置页卡片）+ MessageItem 对 `uploads/images/` 路径的交付文件渲染图片预览。
+- 尺寸白名单 `_ALLOWED_SIZES`（1024 系/720p/1536 系），非法尺寸回落 1024。
+
 ## P0.6 语音交互（speech.py：TTS + ASR，全本地）
 
 - `agent/app/api/speech.py`（已在 main.py 显式 import + include_router，新增路由两处都要改）：

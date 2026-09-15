@@ -148,6 +148,8 @@ class SettingsUpdate(BaseModel):
     context_generation_ratio: float | None = None
     memory_enabled: bool | None = None  # P1 长期记忆开关
     model_providers: list[dict] | None = None  # 私有模型提供商配置（迁移至 llm_servers）
+    image_api: dict | None = None  # P0.7 图像生成：{base_url, model}
+    image_api_key: str | None = None  # P0.7 图像生成 API Key（明文 → 钥匙串 image-api:key）
 
 
 # 占位符：配置文件中 apiKey 字段仅存此标记，真实值在钥匙串（apiKeyRef）
@@ -197,6 +199,13 @@ async def get_settings() -> Dict[str, Any]:
         # 任何情况下都不向前端返回明文密钥
         if p.get("apiKey"):
             p["apiKey"] = _PLACEHOLDER_KEY
+    # P0.7 图像生成：只暴露是否有 Key，不返回明文
+    image_api = s.get("image_api") or {}
+    if not isinstance(image_api, dict):
+        image_api = {}
+    image_api = {k: v for k, v in image_api.items() if k in ("base_url", "model")}
+    image_api["has_key"] = bool(keychain.retrieve_sync("image-api:key"))
+    s["image_api"] = image_api
     return s
 
 
@@ -211,6 +220,23 @@ async def update_settings(body: SettingsUpdate) -> Dict[str, Any]:
         updates["model_providers"] = await _persist_provider_keys(
             updates["model_providers"], existing_map
         )
+    # P0.7 图像生成 Key：明文 → 钥匙串（不回写配置）
+    if "image_api_key" in updates:
+        new_key = (updates.pop("image_api_key") or "").strip()
+        if new_key and new_key != _PLACEHOLDER_KEY:
+            try:
+                await keychain.store("image-api:key", new_key)
+            except Exception:
+                logger.warning("[settings] keychain 不可用，图像生成 Key 未能安全存储")
+    if "image_api" in updates:
+        img_cfg = current.get("image_api") or {}
+        if not isinstance(img_cfg, dict):
+            img_cfg = {}
+        for k in ("base_url", "model"):
+            v = (updates.get("image_api") or {}).get(k)
+            if v is not None:
+                img_cfg[k] = v
+        updates["image_api"] = img_cfg
     current.update(updates)
     _save_settings(current)
     return current

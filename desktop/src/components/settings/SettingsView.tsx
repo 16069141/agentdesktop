@@ -5,6 +5,7 @@ import KnowledgeServersManager from './KnowledgeServersManager'
 import EnterpriseManager from './EnterpriseManager'
 import SearchServersManager from './SearchServersManager'
 import McpServersManager from './McpServersManager'
+import ImageGenManager from './ImageGenManager'
 
 interface Settings {
   shell_whitelist: string[]
@@ -119,6 +120,9 @@ const SettingsView: React.FC = () => {
 
         {/* 外部 MCP 服务（动态挂载工具） */}
         <McpServersManager />
+
+        {/* P0.7 图像生成服务（generate_image 工具） */}
+        <ImageGenManager />
 
         {/* 企业身份与权限（Phase B P0） */}
         <EnterpriseManager />

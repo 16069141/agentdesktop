@@ -26,6 +26,7 @@ from ._foundation import (
 
 # 文档/HTML 生成工具（docx 转换、Jinja2 渲染），实现见 doc_tools.py
 from .doc_tools import DocToHtmlTool, HtmlGeneratorTool
+from .image_tools import GenerateImageTool
 from .planner_tools import CreatePlanTool, UpdatePlanTool
 from .subagent_tools import SubagentTool
 
@@ -809,6 +810,9 @@ def create_tools(
         "doc_to_html": DocToHtmlTool(allowed_roots=allowed_root_dirs),
         "generate_ppt": PptGeneratorTool(),
         "generate_html": HtmlGeneratorTool(),
+        # P0.7 图像生成：OpenAI 兼容端点（火山方舟 Seedream / OpenRouter），
+        # 未配置时工具返回设置引导（模型因此知道该能力存在）
+        "generate_image": GenerateImageTool(),
         # P0 智能体闭环：计划-执行-验证（无状态，状态挂在请求级 PlanBus）
         "create_plan": CreatePlanTool(),
         "update_plan": UpdatePlanTool(),

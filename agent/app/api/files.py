@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,20 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 # 上传文件的落盘目录（允许 Agent 的 filesystem 工具读取原始文件）
 UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# P0.7 图像生成产物目录（generate_image 工具落盘处，提供 HTTP 预览）
+IMAGES_DIR = UPLOADS_DIR / "images"
+
+
+@router.get("/images/{name}")
+async def get_image(name: str):
+    """返回 generate_image 生成的图片（供前端 <img> 预览）。防路径穿越。"""
+    safe = "".join(c for c in Path(name).name if c.isalnum() or c in "._-")
+    path = IMAGES_DIR / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="图片不存在或已过期")
+    media = "image/jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
+    return FileResponse(path, media_type=media)
 
 # 支持的扩展名 → 解析器标识
 SUPPORTED_EXTENSIONS = {

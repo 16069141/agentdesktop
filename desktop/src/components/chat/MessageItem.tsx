@@ -406,53 +406,78 @@ const MessageItem: React.FC<MessageItemProps> = ({
             />
           )}
 
-          {/* Agent 交付文件：打开文件 / 在 Finder 中显示 */}
+          {/* Agent 交付文件：打开文件 / 在 Finder 中显示（图片自动预览） */}
           {isAssistant && deliverFiles.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {deliverFiles.map((filePath) => {
                 const fileName = filePath.split('/').pop() || filePath
+                const isImage = /\.(png|jpe?g|gif|webp)$/i.test(fileName)
+                // P0.7 图像生成产物：通过后端 HTTP 端点预览（data/uploads/images/）
+                const previewUrl =
+                  isImage && filePath.includes('/uploads/images/')
+                    ? `${apiBase}/api/files/images/${encodeURIComponent(fileName)}`
+                    : null
                 return (
-                  <div
-                    key={filePath}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
-                    style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
-                  >
-                    <span
-                      className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
-                      style={{ background: '#22c55e22', color: '#22c55e' }}
+                  <div key={filePath}>
+                    {previewUrl && (
+                      <div
+                        className="mb-1.5 rounded-lg overflow-hidden"
+                        style={{ border: '1px solid var(--border-soft)', maxWidth: 320, background: 'var(--bg-elev)' }}
+                      >
+                        <img
+                          src={previewUrl}
+                          alt={fileName}
+                          className="w-full h-auto block"
+                          style={{ maxHeight: 320, objectFit: 'contain' }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            window.electronAPI?.openFile(filePath)
+                          }}
+                          title="点击打开原图"
+                        />
+                      </div>
+                    )}
+                    <div
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+                      style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
                     >
-                      📄
-                    </span>
-                    <span className="text-xs font-medium truncate flex-1" style={{ color: 'var(--text)' }} title={filePath}>
-                      {fileName}
-                    </span>
-                    <button
-                      className="px-2 py-1 rounded text-[11px] transition-colors flex-shrink-0"
-                      style={{ background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        window.electronAPI?.openFile(filePath)
-                      }}
-                      title={`打开文件 ${filePath}`}
-                    >
-                      打开文件
-                    </button>
-                    <button
-                      className="px-2 py-1 rounded text-[11px] transition-colors flex-shrink-0"
-                      style={{
-                        background: 'transparent',
-                        color: 'var(--text-dim)',
-                        border: '1px solid var(--border-soft)',
-                        cursor: 'pointer',
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        window.electronAPI?.revealInFolder(filePath)
-                      }}
-                      title={`在 Finder 中显示 ${filePath}`}
-                    >
-                      浏览文件夹
-                    </button>
+                      <span
+                        className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
+                        style={{ background: '#22c55e22', color: '#22c55e' }}
+                      >
+                        {isImage ? '🖼️' : '📄'}
+                      </span>
+                      <span className="text-xs font-medium truncate flex-1" style={{ color: 'var(--text)' }} title={filePath}>
+                        {fileName}
+                      </span>
+                      <button
+                        className="px-2 py-1 rounded text-[11px] transition-colors flex-shrink-0"
+                        style={{ background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.electronAPI?.openFile(filePath)
+                        }}
+                        title={`打开文件 ${filePath}`}
+                      >
+                        打开文件
+                      </button>
+                      <button
+                        className="px-2 py-1 rounded text-[11px] transition-colors flex-shrink-0"
+                        style={{
+                          background: 'transparent',
+                          color: 'var(--text-dim)',
+                          border: '1px solid var(--border-soft)',
+                          cursor: 'pointer',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.electronAPI?.revealInFolder(filePath)
+                        }}
+                        title={`在 Finder 中显示 ${filePath}`}
+                      >
+                        浏览文件夹
+                      </button>
+                    </div>
                   </div>
                 )
               })}
