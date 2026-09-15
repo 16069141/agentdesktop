@@ -13,7 +13,7 @@
     {
       "from": "build-staging/agent",
       "to": "agent",
-      "filter": ["**/*", "!**/data/**"]
+      "filter": ["**/*", "!**/data/uploads/**", "!**/data/db/**", "!**/__pycache__/**"]
     },
     {
       "from": "build-staging/config",
@@ -32,7 +32,8 @@
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],
     "icon": "build/icon.ico",
-    "artifactName": "${productName}-${version}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "signAndEditExecutable": false
   },
   "mac": {
     "target": [{ "target": "dmg" }],

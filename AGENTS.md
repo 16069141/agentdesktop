@@ -105,6 +105,16 @@ for p in $(lsof -nP -iTCP:8765 -sTCP:LISTEN -t); do kill -9 $p; done
 cd v2/desktop && npx electron .
 ```
 
+## Windows 打包（NSIS 安装包）
+
+- 一键脚本：`bash v2/scripts/build_windows.sh`（stage-release win-x64 → electron-builder --win nsis）。
+- electron-builder.yml：`win.signAndEditExecutable=false`（macOS 无 wine 时跳过 rcedit，exe 用默认图标/版本）。
+- **NSIS 工具链从 GitHub Releases 下载常超时**：预置缓存 `~/Library/Caches/electron-builder/nsis/nsis-3.0.4.1.7z`（+ nsis-resources-3.4.1.7z），镜像源 `https://registry.npmmirror.com/-/binary/electron-builder-binaries/nsis-3.0.4.1/nsis-3.0.4.1.7z`。
+- stage-release.sh 现在会捆绑 whisper 模型（agent/data/models → staging，electron-builder.yml agent filter 放行 `!**/data/uploads/**` 而非 `!**/data/**`）。
+- Windows 语音：speech.py `os.name=='nt'` → TTS 用 PowerShell System.Speech（SAPI，base64 传文本防转义），ASR 的 ffmpeg 找不到时 PyAV 兜底解码（faster-whisper 自带 av）。
+- agentProcess.ts 已跨平台（win32 → runtime/python/win-x64/python.exe，userData 存数据/配置）；electron-builder 的 win-unpacked 在 release/。
+- **交叉安装 win 依赖**：`pip install --platform win_amd64 --python-version 3.13 --implementation cp --only-binary=:all: --target <dir> -i https://pypi.tuna.tsinghua.edu.cn/simple <pkg>` 后 tar 进 `runtime/python/win-x64/Lib/site-packages/`（faster-whisper 全家桶已装，勿重装）。
+
 ## 同步到已安装的 App（/Applications/颤翎子AI助手.app）
 
 **关键：后端 Python 不在 asar 内**，位于 `Resources/agent/`，可直接复制，无需重打包。

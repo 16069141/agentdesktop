@@ -12,9 +12,12 @@ P0.6 语音交互：
     - 所有文件名安全化，防路径穿越。
 """
 
+import base64
+import io
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 import uuid
@@ -67,7 +70,98 @@ def _find_zh_voice() -> str:
     return "Tingting"
 
 
-def _get_whisper_model():
+def _synthesize_macos(text: str, voice: str, wav_path: Path) -> None:
+    """macOS：say 输出 AIFF → afconvert 转 16bit PCM WAV（浏览器可直放）。"""
+    aiff_path = SPEECH_DIR / f"{wav_path.name}.aiff"
+    try:
+        subprocess.run(
+            ["say", "-v", voice, "-o", str(aiff_path), text],
+            capture_output=True,
+            timeout=90,
+            check=False,
+        )
+        if not aiff_path.exists() or aiff_path.stat().st_size == 0:
+            raise HTTPException(status_code=500, detail="语音合成失败（say 未产出音频）")
+        subprocess.run(
+            ["afconvert", "-f", "WAVE", "-d", "LEI16", str(aiff_path), str(wav_path)],
+            capture_output=True,
+            timeout=90,
+            check=False,
+        )
+        if not wav_path.exists():
+            raise HTTPException(status_code=500, detail="语音格式转换失败（afconvert）")
+    finally:
+        aiff_path.unlink(missing_ok=True)
+
+
+def _synthesize_windows(text: str, wav_path: Path) -> None:
+    """Windows：PowerShell System.Speech（SAPI）直接输出 WAV，优先中文声线。
+
+    Windows 无 say/afconvert；SAPI 是系统自带，零依赖。
+    文本经 base64 传入，规避 PowerShell 引号转义地狱；路径转正斜杠防反斜杠转义。
+    """
+    b64 = base64.b64encode(text.encode("utf-8")).decode()
+    wav_posix = str(wav_path).replace("\\", "/")
+    ps = (
+        "Add-Type -AssemblyName System.Speech;"
+        f"$t=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}'));"
+        "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+        "$v=$s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'zh*' } | Select-Object -First 1;"
+        "if($v){ try{ $s.SelectVoice($v.VoiceInfo.Name) }catch{} };"
+        f"$s.SetOutputToWaveFile('{wav_posix}');"
+        "$s.Speak($t);$s.Dispose()"
+    )
+    subprocess.run(
+        ["powershell", "-NoProfile", "-Command", ps],
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    if not wav_path.exists() or wav_path.stat().st_size == 0:
+        raise HTTPException(
+            status_code=500,
+            detail="语音合成失败（Windows SAPI 未产出音频，请确认系统安装了语音声线）",
+        )
+
+
+def _find_ffmpeg():
+    """定位 ffmpeg：PATH → 内置 data/bin/ffmpeg(.exe)。找不到返回 None。"""
+    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    found = shutil.which(exe)
+    if found:
+        return [found]
+    bundled = Path(__file__).resolve().parent.parent.parent / "data" / "bin" / exe
+    if bundled.exists():
+        return [str(bundled)]
+    return None
+
+
+def _decode_wav_pyav(data: bytes):
+    """ffmpeg 不可用时的兜底：PyAV 解码 → 16k 单声道 float32（faster-whisper 直接吃）。"""
+    try:
+        import av
+        import numpy as np
+    except ImportError:
+        return None
+    try:
+        container = av.open(io.BytesIO(data))
+        stream = next((s for s in container.streams if s.type == "audio"), None)
+        if stream is None:
+            return None
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+        chunks = []
+        for frame in container.decode(stream):
+            for rf in resampler.resample(frame):
+                chunks.append(rf.to_ndarray())
+        for rf in resampler.resample(None):  # flush 尾部
+            chunks.append(rf.to_ndarray())
+        container.close()
+        if not chunks:
+            return None
+        mono = np.concatenate(chunks, axis=1)[0]
+        return mono.astype(np.float32) / 32768.0
+    except Exception:  # noqa: BLE001
+        return None
     """惰性加载 faster-whisper 模型（base, int8, CPU），进程内复用。"""
     global _whisper_model, _whisper_lock
     if _whisper_model is not None:
@@ -117,33 +211,17 @@ async def synthesize(payload: dict) -> dict:
     voice = str(payload.get("voice") or _find_zh_voice())
 
     name = f"tts-{int(time.time() * 1000)}.wav"
-    aiff_path = SPEECH_DIR / f"{name}.aiff"
     wav_path = SPEECH_DIR / name
     try:
-        # say 输出 AIFF → afconvert 转 16bit PCM WAV（浏览器可直放）
-        subprocess.run(
-            ["say", "-v", voice, "-o", str(aiff_path), text],
-            capture_output=True,
-            timeout=90,
-            check=False,
-        )
-        if not aiff_path.exists() or aiff_path.stat().st_size == 0:
-            raise HTTPException(status_code=500, detail="语音合成失败（say 未产出音频）")
-        subprocess.run(
-            ["afconvert", "-f", "WAVE", "-d", "LEI16", str(aiff_path), str(wav_path)],
-            capture_output=True,
-            timeout=90,
-            check=False,
-        )
-        if not wav_path.exists():
-            raise HTTPException(status_code=500, detail="语音格式转换失败（afconvert）")
+        if os.name == "nt":
+            _synthesize_windows(text, wav_path)
+        else:
+            _synthesize_macos(text, voice, wav_path)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.error(f"[speech] 合成失败: {exc}")
         raise HTTPException(status_code=500, detail=f"语音合成失败：{exc}")
-    finally:
-        aiff_path.unlink(missing_ok=True)
 
     logger.info(f"[speech] TTS 完成: voice={voice} chars={len(text)} → {name}")
     return {"path": str(wav_path), "url": f"/api/speech/audio/{name}", "voice": voice}
@@ -164,22 +242,35 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
     try:
         tmp_in.write_bytes(data)
         # 统一转 16k 单声道 WAV 再喂 whisper（兼容 webm/opus 等编码）
-        r = subprocess.run(
-            ["ffmpeg", "-y", "-i", str(tmp_in), "-ar", "16000", "-ac", "1", str(tmp_wav)],
-            capture_output=True,
-            timeout=120,
-            check=False,
-        )
-        if not tmp_wav.exists() or tmp_wav.stat().st_size == 0:
-            detail = (r.stderr or b"").decode("utf-8", errors="replace")[-300:]
-            raise HTTPException(
-                status_code=400, detail=f"音频解码失败（ffmpeg）：{detail.strip()}"
+        ffmpeg = _find_ffmpeg()
+        wav_ok = False
+        if ffmpeg is not None:
+            r = subprocess.run(
+                [*ffmpeg, "-y", "-i", str(tmp_in), "-ar", "16000", "-ac", "1", str(tmp_wav)],
+                capture_output=True,
+                timeout=120,
+                check=False,
             )
+            wav_ok = tmp_wav.exists() and tmp_wav.stat().st_size > 0
+            if not wav_ok:
+                logger.warning(
+                    "[speech] ffmpeg 解码失败，尝试 PyAV 兜底: %s",
+                    (r.stderr or b"").decode("utf-8", errors="replace")[-200:],
+                )
 
         model = _get_whisper_model()
-        segments, _info = model.transcribe(
-            str(tmp_wav), language="zh", vad_filter=True, beam_size=1
-        )
+        if wav_ok:
+            segments, _info = model.transcribe(
+                str(tmp_wav), language="zh", vad_filter=True, beam_size=1
+            )
+        else:
+            audio = _decode_wav_pyav(data)
+            if audio is None:
+                detail = "音频解码失败：ffmpeg 不可用且 PyAV 无法解码该格式"
+                raise HTTPException(status_code=400, detail=detail)
+            segments, _info = model.transcribe(
+                audio, language="zh", vad_filter=True, beam_size=1
+            )
         text = "".join(seg.text for seg in segments).strip()
         if not text:
             return {"text": "", "language": "zh"}

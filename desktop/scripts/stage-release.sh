@@ -42,6 +42,13 @@ rsync -a --exclude '.venv' --exclude 'data' --exclude '__pycache__' \
   --exclude '*.pyc' --exclude '.pytest_cache' \
   "$AGENT_SRC/" "$STAGE_AGENT/"
 
+# 1b) 语音模型（whisper-base）本地捆绑：离线 ASR 可用，无需首跑联网下载
+if [ -d "$AGENT_SRC/data/models" ]; then
+  mkdir -p "$STAGE_AGENT/data"
+  rsync -a "$AGENT_SRC/data/models" "$STAGE_AGENT/data/"
+  echo "[stage] ✓ 内置语音模型: $(du -sh "$STAGE_AGENT/data/models" | cut -f1)"
+fi
+
 # 2) Python 运行时（python-build-standalone，跨机器可移植）
 #    runtime/python/<key>/  由 scripts/fetch-python-runtime.sh 生成。
 #    按 key 筛选，否则把三平台全打进去会让安装包从 90M 涨到 ~250M。
