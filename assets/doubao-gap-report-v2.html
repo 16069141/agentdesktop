@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>颤翎子 × 豆包 复评报告 v2 · 2026-09-15</title>
+<style>
+  :root {
+    --bg: #0e1218; --card: #151b24; --card2: #1a2230; --line: #243044;
+    --text: #e8eef6; --dim: #93a1b8; --faint: #5c6b82;
+    --teal: #3fd8be; --teal-ink: #06231d;
+    --amber: #f5b942; --rose: #f4698e; --blue: #5aa2f6; --violet: #9a7ff0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; line-height: 1.65; padding: 40px 20px 80px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 28px; }
+  .tag { display: inline-block; font-size: 12px; color: var(--teal); border: 1px solid var(--teal); border-radius: 20px; padding: 2px 12px; margin-bottom: 12px; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: .5px; }
+  .sub { color: var(--dim); font-size: 13px; margin-top: 8px; }
+  .verdict { margin-top: 18px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; font-size: 14px; }
+  .verdict b { color: var(--teal); }
+  h2 { font-size: 19px; margin: 40px 0 16px; padding-left: 10px; border-left: 4px solid var(--teal); }
+  h3 { font-size: 15px; margin: 22px 0 10px; color: var(--text); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; background: var(--card2); }
+  td.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--dim); }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+  .b-miss { background: rgba(244,105,142,.15); color: var(--rose); border: 1px solid rgba(244,105,142,.4); }
+  .b-have { background: rgba(63,216,190,.12); color: var(--teal); border: 1px solid rgba(63,216,190,.4); }
+  .b-part { background: rgba(245,185,66,.12); color: var(--amber); border: 1px solid rgba(245,185,66,.4); }
+  .b-high { background: rgba(244,105,142,.15); color: var(--rose); }
+  .b-mid { background: rgba(245,185,66,.15); color: var(--amber); }
+  .b-low { background: rgba(90,162,246,.15); color: var(--blue); }
+  /* 对比条形 */
+  .bars { display: flex; flex-direction: column; gap: 10px; }
+  .bar-row { display: grid; grid-template-columns: 90px 1fr 1fr; align-items: center; gap: 12px; font-size: 12px; }
+  .bar-row .lbl { color: var(--dim); text-align: right; }
+  .bar-track { height: 18px; background: var(--card2); border-radius: 4px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 11px; font-weight: 700; color: #06141f; }
+  .b-db { background: linear-gradient(90deg, #5aa2f6, #7c6cf0); }
+  .b-cq { background: linear-gradient(90deg, #3fd8be, #34c39f); }
+  .bar-cap { font-size: 10px; color: var(--faint); }
+  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  /* 路线 */
+  .road { display: flex; flex-wrap: wrap; gap: 12px; }
+  .step { flex: 1 1 200px; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; position: relative; }
+  .step .p { font-size: 11px; color: var(--teal); font-weight: 700; letter-spacing: 1px; }
+  .step .t { font-size: 14px; font-weight: 600; margin: 6px 0 4px; }
+  .step .d { font-size: 12px; color: var(--dim); }
+  .step.done { border-color: rgba(63,216,190,.5); }
+  .step.done::after { content: "✓ 已完成"; position: absolute; top: 10px; right: 12px; font-size: 10px; color: var(--teal); }
+  .gap-num { font-size: 28px; font-weight: 800; font-family: ui-monospace, Menlo, monospace; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .stat .n { font-size: 24px; font-weight: 800; color: var(--teal); }
+  .stat .l { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .stat.rose .n { color: var(--rose); }
+  .foot { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--faint); }
+  .foot a { color: var(--blue); text-decoration: none; word-break: break-all; }
+  .note { font-size: 12px; color: var(--dim); background: var(--card2); border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="tag">复评 v2 · 2026-09-15 · 客户端 8d8b009（含 P0.5 三模式）</span>
+  <h1>颤翎子 × 豆包：能力差距复评报告</h1>
+  <div class="sub">以豆包（豆包工作/Doubao Work 桌面版）为标准，从能力、性能、易用、稳定及生态、安全、成本、可定制共 8 个层面逐项对比。评分 0-10，依据：颤翎子侧为代码与真机验证事实；豆包侧为官方页面与 2026-08/09 公开报道。</div>
+  <div class="verdict">
+    结论：<b>执行内核已对齐约 88%</b>（较 v1 的 80% 提升，三模式补齐了 Plan/Ask 的工作方式差距）；但产品化差距依然集中在<b>多媒体生成（图像/视频/音频）、语音交互、在线办公套件、云电脑远程、飞书生态与技能规模</b>六大项。颤翎子的护城河不变：<b>本地优先 + 全链路审计 + 深度可定制 + 模型自由</b>。
+  </div>
+</header>
+
+<h2>一、八维总览</h2>
+<div class="card">
+  <div class="legend">
+    <span><i class="b-db"></i>豆包（云端全家桶）</span>
+    <span><i class="b-cq"></i>颤翎子（本地私有化）</span>
+  </div>
+  <div class="bars">
+    <div class="bar-row"><div class="lbl">能力</div><div class="bar-track"><div class="bar-fill b-db" style="width:85%">8.5</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:55%">5.5</div></div></div>
+    <div class="bar-row"><div class="lbl">性能</div><div class="bar-track"><div class="bar-fill b-db" style="width:80%">8.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:70%">7.0</div></div></div>
+    <div class="bar-row"><div class="lbl">易用</div><div class="bar-track"><div class="bar-fill b-db" style="width:80%">8.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:50%">5.0</div></div></div>
+    <div class="bar-row"><div class="lbl">稳定</div><div class="bar-track"><div class="bar-fill b-db" style="width:90%">9.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:50%">5.0</div></div></div>
+    <div class="bar-row"><div class="lbl">安全隐私</div><div class="bar-track"><div class="bar-fill b-db" style="width:60%">6.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:90%">9.0</div></div></div>
+    <div class="bar-row"><div class="lbl">生态连接</div><div class="bar-track"><div class="bar-fill b-db" style="width:90%">9.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:20%">2.0</div></div></div>
+    <div class="bar-row"><div class="lbl">可定制</div><div class="bar-track"><div class="bar-fill b-db" style="width:30%">3.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:90%">9.0</div></div></div>
+    <div class="bar-row"><div class="lbl">成本</div><div class="bar-track"><div class="bar-fill b-db" style="width:60%">6.0</div></div><div class="bar-track"><div class="bar-fill b-cq" style="width:80%">8.0</div></div></div>
+  </div>
+</div>
+
+<h2>二、能力层差距明细（最大差距所在）</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:22%">能力项</th><th style="width:30%">豆包（标准）</th><th style="width:30%">颤翎子现状</th><th>差距</th></tr>
+    <tr><td><b>图像生成/编辑</b></td><td>Seedream 5.0 Pro：文生图、局部编辑、去水印、美颜、老照片动起来，20+ 风格</td><td><span class="badge b-miss">无</span> 无任何图像生成能力</td><td><span class="badge b-high">P0 级缺口</span></td></tr>
+    <tr><td><b>视频生成</b></td><td>Seedance 2.5：文生视频、图生视频、对口型、1080P 导出</td><td><span class="badge b-miss">无</span></td><td><span class="badge b-high">P0 级缺口</span></td></tr>
+    <tr><td><b>语音交互</b></td><td>语音对话/语音输入（App 原生）</td><td><span class="badge b-miss">无</span> 无 TTS / ASR 入口</td><td><span class="badge b-high">P0 级缺口</span></td></tr>
+    <tr><td><b>在线文档套件</b></td><td>生成并局部修改 Word/Excel/PPT/网页/应用（指哪改哪），云端协作</td><td><span class="badge b-part">部分</span> 本地 python-pptx、markdown、generate_html；无局部修改、无协作</td><td><span class="badge b-high">P1 级缺口</span></td></tr>
+    <tr><td><b>云电脑 / 远程</b></td><td>本地+云电脑双模式，手机远程查看，云端 7×24 持续运行</td><td><span class="badge b-part">部分</span> 本地后台任务可续跑，但依赖本机开机</td><td><span class="badge b-high">P1 级缺口</span></td></tr>
+    <tr><td><b>飞书生态 / 连接器</b></td><td>与飞书 8.0 原生融合：企业数据、身份权限、技能+连接器操作业务系统</td><td><span class="badge b-miss">无</span></td><td><span class="badge b-high">P1 级缺口</span></td></tr>
+    <tr><td><b>技能生态规模</b></td><td>内置 200+ 技能 + 工作小队</td><td><span class="badge b-part">部分</span> 本地 skill-hub + GitHub Pages，8 技能私有市场</td><td><span class="badge b-mid">P2 级缺口</span></td></tr>
+    <tr><td><b>虚拟桌面操作</b></td><td>操作虚拟桌面，实时查看、随时暂停/接管</td><td><span class="badge b-part">部分</span> 有 rpa 工具，但无可视化虚拟桌面与接管</td><td><span class="badge b-mid">P2 级缺口</span></td></tr>
+    <tr><td><b>超长文档理解</b></td><td>100 万字文档解析、摘要、思维导图</td><td><span class="badge b-part">部分</span> 支持上传 pdf/docx/xlsx/pptx，本地解析受机器内存限制</td><td><span class="badge b-mid">P2 级缺口</span></td></tr>
+    <tr><td><b>思维导图</b></td><td>文档转结构化脑图，导出图片/文档</td><td><span class="badge b-miss">无</span></td><td><span class="badge b-mid">P2 级缺口</span></td></tr>
+  </table>
+  <div class="note">颤翎子已具备且真机验证的同级能力（不再视为缺口）：计划-执行-验证闭环、三种工作模式（craft/plan/ask）、长期记忆、定时任务、多智能体并行委派、工具调用审计、意图续跑守卫、多模型自由切换、本地优先数据不出机。</div>
+</div>
+
+<h2>三、执行内核对比（颤翎子打平/反超的区域）</h2>
+<div class="card">
+  <table>
+    <tr><th>能力项</th><th>豆包</th><th>颤翎子</th><th>判定</th></tr>
+    <tr><td>工具调用闭环（计划-执行-验证）</td><td>有（工作任务模式）</td><td>create_plan/update_plan + PlanBus + 前端计划卡片</td><td><span class="badge b-have">打平</span></td></tr>
+    <tr><td>工作方式（直接做/先计划/只问答）</td><td>有</td><td>P0.5 三模式（已上线）</td><td><span class="badge b-have">打平</span></td></tr>
+    <tr><td>长期记忆</td><td>云端记忆（可开关）</td><td>本地 SQLite + 后台 LLM 提取（preference/fact/conclusion）</td><td><span class="badge b-part">略逊</span> 颤翎子可审计、本地，但提取粒度粗</td></tr>
+    <tr><td>定时任务</td><td>自然语言设置（"每周一 10 点生成周报"）</td><td>at/interval/daily/weekly/hourly + 15s 调度 + 未读徽标（表单设置）</td><td><span class="badge b-part">略逊</span> 缺自然语言解析入口</td></tr>
+    <tr><td>多智能体协作</td><td>工作小队（200+ 技能编排）</td><td>6 角色 subagent 并行委派（实测三路并行 ≈ 最慢者）</td><td><span class="badge b-have">打平</span></td></tr>
+    <tr><td>防"假智能"（说完不干）</td><td>—</td><td>意图续跑守卫 + 自动续跑守卫（重放截图场景 8 次调用产出报告）</td><td><span class="badge b-have">反超</span></td></tr>
+    <tr><td>工具审计</td><td>飞书身份权限管控</td><td>每次工具调用审计落库 + 审计页</td><td><span class="badge b-have">反超</span></td></tr>
+    <tr><td>本地文件/系统操作</td><td>虚拟桌面/云电脑（隔离）</td><td>直接操作系统真实文件（即时、真实）</td><td><span class="badge b-have">反超（也是风险点，需门控）</span></td></tr>
+    <tr><td>模型自由</td><td>绑定豆包模型</td><td>接任意 OpenAI 兼容模型（agnes/deepseek 等）</td><td><span class="badge b-have">反超</span></td></tr>
+  </table>
+</div>
+
+<h2>四、性能层</h2>
+<div class="card">
+  <table>
+    <tr><th>维度</th><th>豆包</th><th>颤翎子</th><th>判定</th></tr>
+    <tr><td>模型推理能力</td><td>旗舰模型（深度推理、多模态理解）</td><td>接入第三方模型，能力随所选模型浮动</td><td><span class="badge b-miss">豆包胜</span>（颤翎子可换任意模型弥补）</td></tr>
+    <tr><td>首 token / 流式延迟</td><td>云端，依赖网络</td><td>本地直连，零网络损耗</td><td><span class="badge b-have">颤翎子可能更快</span></td></tr>
+    <tr><td>本地文件操作速度</td><td>虚拟桌面有隔离开销</td><td>直接读写真实文件系统</td><td><span class="badge b-have">颤翎子胜</span></td></tr>
+    <tr><td>超长文档处理</td><td>云端 100 万字</td><td>本地机器内存/算力上限</td><td><span class="badge b-miss">豆包胜</span></td></tr>
+    <tr><td>长时间运行</td><td>云电脑 7×24</td><td>需本机开机，可后台续跑</td><td><span class="badge b-miss">豆包胜</span></td></tr>
+    <tr><td>并发/多会话</td><td>云端集群</td><td>单机多会话并行（流按会话独立）</td><td><span class="badge b-part">打平</span> 单用户场景够用</td></tr>
+  </table>
+</div>
+
+<h2>五、易用层</h2>
+<div class="card">
+  <table>
+    <tr><th>维度</th><th>豆包</th><th>颤翎子</th><th>差距等级</th></tr>
+    <tr><td>界面成熟度</td><td>精致：引导、空状态、动效、提示完备</td><td>功能密集但粗糙，错误直接展示原始信息</td><td><span class="badge b-high">P1</span></td></tr>
+    <tr><td>开箱即用</td><td>账号 + 云端模型，装完即用</td><td>需配置模型服务器连接（有默认配置，技术门槛略高）</td><td><span class="badge b-mid">P2</span></td></tr>
+    <tr><td>多端覆盖</td><td>手机 + 网页 + 桌面 + 云电脑</td><td>仅桌面（macOS）</td><td><span class="badge b-high">P1</span></td></tr>
+    <tr><td>新人引导/教程</td><td>官方教程、场景引导</td><td>无</td><td><span class="badge b-mid">P2</span></td></tr>
+    <tr><td>自然语言设置</td><td>"每周一 10 点生成周报"直接说</td><td>定时页表单（有前端页，缺 NL 解析）</td><td><span class="badge b-mid">P2</span></td></tr>
+    <tr><td>桌面常驻全局唤起</td><td>桌面常驻，任何软件随时问</td><td>无全局唤起</td><td><span class="badge b-mid">P2</span></td></tr>
+  </table>
+</div>
+
+<h2>六、稳定层</h2>
+<div class="card">
+  <table>
+    <tr><th>维度</th><th>豆包</th><th>颤翎子</th><th>差距等级</th></tr>
+    <tr><td>服务可用性</td><td>云端 SLA，发布即大规模验证</td><td>本地单进程，崩溃无自动恢复</td><td><span class="badge b-high">P1</span></td></tr>
+    <tr><td>版本更新</td><td>自动更新</td><td>手动脚本同步（sync_agent_to_app.sh / update_app.sh）</td><td><span class="badge b-mid">P2</span></td></tr>
+    <tr><td>失败容错</td><td>云端重试、降级</td><td>有自动续跑守卫，但整体错误体验糙</td><td><span class="badge b-mid">P2</span></td></tr>
+    <tr><td>数据持久性</td><td>云端托管</td><td>本地 SQLite（会话/记忆/任务），用户自管</td><td><span class="badge b-have">颤翎子更可控</span></td></tr>
+    <tr><td>离线可用</td><td>依赖网络</td><td>本地模型可离线（当前依赖远端模型服务器）</td><td><span class="badge b-part">持平</span></td></tr>
+  </table>
+</div>
+
+<h2>七、颤翎子护城河（豆包做不到的）</h2>
+<div class="card">
+  <div class="grid3">
+    <div class="stat"><div class="n">数据不出机</div><div class="l">本地存储会话/记忆/审计，企业私有化部署，合规审计友好。豆包数据在服务商侧。</div></div>
+    <div class="stat rose"><div class="n">全链路可审计</div><div class="l">每次工具调用审计落库 + 审计页，可追溯"AI 动了什么"。豆包仅企业版有权限管控。</div></div>
+    <div class="stat"><div class="n">深度可定制</div><div class="l">开源代码，30 行加一个工具；可接入任意模型、任意技能，不绑生态。</div></div>
+    <div class="stat rose"><div class="n">成本可控</div><div class="l">自有模型/本地算力，无订阅依赖，长期边际成本低。</div></div>
+    <div class="stat"><div class="n">无网络依赖</div><div class="l">核心链路本地运行，弱网/断网不中断（模型层可选本地）。</div></div>
+    <div class="stat rose"><div class="n">直接动真机</div><div class="l">直接操作系统真实文件，执行真实任务（如整理桌面），虚拟桌面做不到的深度。</div></div>
+  </div>
+</div>
+
+<h2>八、优先级路线（对标豆包补差距）</h2>
+<div class="road">
+  <div class="step done"><div class="p">P0.5 ✓</div><div class="t">三种工作模式</div><div class="d">craft / plan / ask 已上线，对齐豆包工作方式。</div></div>
+  <div class="step"><div class="p">P0.6</div><div class="t">语音交互</div><div class="d">TTS 朗读 + ASR 输入（macOS 原生 / Whisper），成本低、易用提升大。</div></div>
+  <div class="step"><div class="p">P0.7</div><div class="t">图像生成工具</div><div class="d">接 Seedream API 或本地 SD，补最大能力缺口。</div></div>
+  <div class="step"><div class="p">P1</div><div class="t">办公产物深化</div><div class="d">PPT 模板化、docx/xlsx 生成、局部修改、思维导图。</div></div>
+  <div class="step"><div class="p">P1</div><div class="t">稳定性工程</div><div class="d">崩溃自动恢复、错误兜底、自动更新渠道。</div></div>
+  <div class="step"><div class="p">P2</div><div class="t">生态与连接器</div><div class="d">飞书/日历/邮件连接器、技能市场扩到 50+。</div></div>
+  <div class="step"><div class="p">P3</div><div class="t">云任务 / 远程</div><div class="d">任务下发到常驻守护进程，手机端查看进度。</div></div>
+</div>
+
+<div class="foot">
+  <b>数据口径与信源</b>：颤翎子侧评分基于代码事实与真机验证（三模式/记忆/定时/多智能体/守卫均已实测）；豆包侧基于官方页面与 2026-08/09 公开报道（豆包工作"工作任务"模式、Seedream 5.0 Pro / Seedance 2.5、飞书 8.0 原生融合、云电脑双模式、记忆功能）。评分为主观量化，供优先级决策参考。<br>
+  <a href="https://www.doubao.com/download/desktop">doubao.com/download/desktop（豆包桌面版）</a> ·
+  <a href="https://ai-doubao.com.cn/">ai-doubao.com.cn（功能总览）</a> ·
+  <a href="https://docs.volcengine.com/docs/82379/1978533">火山引擎·豆包助手</a> ·
+  <a href="http://m.toutiao.com/group/7685631098232603170/">飞书 8.0 发布（豆包工作原生融合）</a> ·
+  <a href="https://finance.sina.com.cn/jjxw/2026-08-21/doc-iniparap8132847.shtml.md">新浪财经·豆包工作任务密集更新</a> ·
+  <a href="http://www.stdaily.com/web/gdxw/2026-08/19/content_566443.html">科技日报·云电脑双模式</a> ·
+  <a href="https://www.doubao.com/legal/memory_faq">豆包·记忆功能 FAQ</a>
+</div>
+
+</div>
+</body>
+</html>
