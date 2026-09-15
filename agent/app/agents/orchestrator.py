@@ -406,16 +406,11 @@ class AgentOrchestrator:
                 if role in ("user", "assistant") and content:
                     messages.append({"role": role, "content": content})
 
-        # 当前用户消息：有图片时用 OpenAI 多模态格式（content 为数组）
+        # 当前用户消息：有图片时延迟到 resolve_model 之后统一构造
+        # （图片消息需要知道 provider 是本机还是远程网关：本机才能用
+        # image_url 指向本机文件；远程网关一律走 OCR 文本兜底）。
         if images:
-            content_parts: list[dict] = []
-            if user_message and user_message.strip():
-                content_parts.append({"type": "text", "text": user_message})
-            else:
-                content_parts.append({"type": "text", "text": "请描述这张图片的内容"})
-            for img in images:
-                content_parts.append({"type": "image_url", "image_url": {"url": img}})
-            messages.append({"role": "user", "content": content_parts})
+            pass  # 图片消息在 resolve_model 后构造（含 user_message 文本）
         else:
             messages.append({"role": "user", "content": user_message})
 
@@ -489,6 +484,59 @@ class AgentOrchestrator:
             user_preferred=model_id,
             require_tools=True,
         )
+
+        # ── P0.9 图片消息构造（需 provider 信息，故放在 resolve_model 之后）──
+        # 每张图：data URL → 落盘 → OCR 文字提取；本机网关额外附 image_url。
+        # 远程网关：只注入 OCR 文本（网关访问不到本机 127.0.0.1 文件）。
+        if images:
+            try:
+                from ..vision import is_local_base_url
+                from ..vision import describe_image
+
+                content_parts: list[dict] = []
+                text_lines: list[str] = []
+                if user_message and user_message.strip():
+                    text_lines.append(user_message)
+                elif not images:
+                    text_lines.append("请描述这张图片的内容")
+                _local_gateway = is_local_base_url(
+                    getattr(target_provider, "base_url", "")
+                )
+                for _img in images:
+                    if not isinstance(_img, str):
+                        continue
+                    if _img.startswith("data:image/"):
+                        _desc = await asyncio.to_thread(describe_image, _img)
+                        _ocr = _desc.get("ocr_text") or ""
+                        if _ocr:
+                            text_lines.append(
+                                "以下文字是【用户上传截图的 OCR 识别结果】，"
+                                "这是用户图片里的内容，不是本对话的历史消息，"
+                                "请基于它回答用户的问题：\n"
+                                f"{_ocr}"
+                            )
+                        _url = _desc.get("local_url")
+                        if _local_gateway and _url:
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": _url},
+                            })
+                    elif _img.startswith(("http://", "https://")):
+                        # 已是公网/内网 URL：直接给模型（模型侧需能访问）
+                        content_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": _img},
+                        })
+                if text_lines:
+                    content_parts.insert(0, {
+                        "type": "text",
+                        "text": "\n".join(text_lines),
+                    })
+                if content_parts:
+                    messages.append({"role": "user", "content": content_parts})
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning("[agent] 图片消息构造失败（回退纯文本）: %s", _exc)
+                messages.append({"role": "user", "content": user_message})
 
         # 工具 schema 在整个会话中保持不变，循环外只构建一次。
         # 是否真的挂载取决于模型能力：不带 tools 的模型（如 deepseek-coder:6.7b）

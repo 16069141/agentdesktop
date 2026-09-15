@@ -38,6 +38,15 @@ v2/
 
 已有工具：`filesystem`（read/write/list/search）、`shell`、`knowledge`、`code`、`browser`、`db_query`、`rpa`、`doc_to_html`（mammoth）、`generate_ppt`（python-pptx）、`create_plan`/`update_plan`（P0 计划-执行-验证，状态挂请求级 PlanBus）、`subagent`（P3 多智能体委派）。
 
+## P0.9 图片视觉输入（上传图片解析）
+
+- `agent/app/vision.py`：data URL 落盘（`agent/data/uploads/images/chat-*.png`）+ OCR 提取。macOS 用 **ocrmac**（Apple Vision，离线中文准，pip 装进 dev venv 与 App mac runtime），Windows 用 PowerShell **Windows.Media.Ocr**（Win10 1803+ 系统自带，无 Python 依赖，模式同 speech.py SAPI 分支）。
+- `orchestrator.run_stream` images 处理在 **resolve_model 之后**（需判断网关本机/远程）：
+  - 本机网关（base_url 127.0.0.1/localhost）→ 注入 OCR 文本 + `image_url`（`http://127.0.0.1:{AGENT_PORT}/api/files/images/{name}`）
+  - 远程网关 → 只注入 OCR 文本（网关访问不到本机 URL），文本带「用户上传截图 OCR 识别结果」说明
+- 前端已具备：InputBox 图片选择（FileReader → base64 data URL）→ ChatView → sseClient images 字段；MessageItem 渲染图片缩略图。
+- 验证：真实 chat 请求带 data URL 图 → 模型能复述截图内容（曾因滑动窗口裁掉 user 消息导致 400，见 context_manager 修复）。
+
 ## P0.5 三种工作模式（craft / plan / ask，对齐 WorkBuddy）
 
 - `orchestrator.run_stream(mode=, plan_confirmed=)`：craft=直接执行（默认）；ask=关闭工具 schema（tools_enabled=False），纯问答；plan=未确认前工具门控只放行 `create_plan`/`update_plan`（`_PLAN_GATE_TOOLS`），其余调用返回「等待确认」占位结果不执行；计划建立后产出 `plan_awaiting_confirm` 事件（载荷同 plan 事件：goal+steps）并 break 本轮。
