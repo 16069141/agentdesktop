@@ -433,6 +433,136 @@ class CodeTool(BaseTool):
         return 1 + len(keywords)
 
 
+class CodeLocateTool(BaseTool):
+    """代码定位工具（只读）：按关键词在客户端代码库中快速定位文件与行号。
+
+    对比豆包"梳理代码逻辑"的差距补齐：模型此前要靠 filesystem search +
+    shell grep 多轮摸索才能找到相关代码；本工具一步返回
+    「文件:行号: 匹配行（带上下文）」，降低客户端自身问题排查的取证成本。
+    """
+
+    name = "code_locate"
+    description = (
+        "在客户端自身代码库中按关键词快速定位相关文件与行号（只读搜索，一次返回全部命中）。"
+        "当用户的问题涉及客户端自身行为（报错、模型/服务器连接、设置、功能缺陷、界面、打包）时，"
+        "**优先用本工具**而非逐个 filesystem 搜索：传入 1-5 个关键词，直接拿到命中文件+行号+上下文。"
+    )
+    requires_approval = False
+
+    parameters = {
+        "type": "object",
+        "properties": {
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 5,
+                "description": "要定位的关键词（如 normalize_v1_url、/models、allowed_models），多个词会分别搜索",
+            },
+            "path": {
+                "type": "string",
+                "description": "可选：限定搜索子目录（相对代码库根，如 agent/app/api）；缺省搜全库",
+            },
+        },
+        "required": ["keywords"],
+    }
+
+    # 代码文件扩展名（排除图片/音频/二进制）
+    _CODE_EXTS = {
+        ".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".html",
+        ".css", ".scss", ".yml", ".yaml", ".sh", ".toml", ".ini", ".vue",
+    }
+    # 遍历时跳过的目录（体积大/无关）
+    _SKIP_DIRS = {
+        "node_modules", ".git", "dist", "build", "release", ".venv",
+        "__pycache__", "data", "uploads", "models", "runtime", "cache",
+        ".vite", "out", "coverage", ".next", "win-unpacked",
+    }
+    _MAX_FILES = 12
+    _MAX_HITS_PER_FILE = 5
+    _MAX_CHARS = 6000
+
+    async def execute(self, arguments: dict) -> dict:
+        try:
+            from ..agents.self_awareness import code_root
+
+            root = code_root()
+        except Exception as exc:
+            return {"success": False, "result": f"无法定位代码库根: {exc}"}
+        keywords = [k.strip() for k in (arguments.get("keywords") or []) if k.strip()]
+        if not keywords:
+            return {"success": False, "result": "请提供至少一个关键词"}
+        rel_path = (arguments.get("path") or "").strip().lstrip("/")
+        search_root = str(Path(root) / rel_path) if rel_path else root
+        if not Path(search_root).is_dir():
+            return {
+                "success": False,
+                "result": f"路径不存在: {search_root}（可用子目录: agent/app、desktop/src 等）",
+            }
+
+        # 大小写不敏感多关键词匹配
+        patterns = [re.compile(re.escape(k), re.IGNORECASE) for k in keywords]
+        hits: dict[str, list[str]] = {}
+
+        def _walk(directory: Path):
+            try:
+                entries = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+            except PermissionError:
+                return
+            for entry in entries:
+                if entry.is_dir():
+                    if entry.name in self._SKIP_DIRS or entry.name.startswith("."):
+                        continue
+                    _walk(entry)
+                else:
+                    if entry.suffix.lower() not in self._CODE_EXTS:
+                        continue
+                    if len(hits) >= self._MAX_FILES:
+                        return
+                    try:
+                        lines = entry.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    except Exception:
+                        continue
+                    found: list[tuple[int, str]] = []
+                    for idx, line in enumerate(lines):
+                        if any(p.search(line) for p in patterns):
+                            found.append((idx, line))
+                            if len(found) >= self._MAX_HITS_PER_FILE:
+                                break
+                    if found:
+                        rel = entry.relative_to(Path(root))
+                        blk = [f"{rel}"]
+                        for ln, line in found:
+                            blk.append(f"  L{ln+1}: {line.strip()[:160]}")
+                        hits[str(rel)] = blk
+
+        _walk(Path(search_root))
+
+        if not hits:
+            return {
+                "success": True,
+                "result": f"代码库（{search_root}）中未命中关键词 {keywords}。"
+                "建议：换更短的词（如函数名、报错关键字），或先用 filesystem list 看目录结构。",
+            }
+
+        lines_out = [f"命中 {len(hits)} 个文件（关键词: {', '.join(keywords)}）：", ""]
+        total = 0
+        for rel, blk in hits.items():
+            if total >= self._MAX_CHARS:
+                lines_out.append(f"…（结果已截断，剩余 {len(hits) - len([l for l in lines_out if l and l[0].isdigit()])} 个文件未展示）")
+                break
+            chunk = "\n".join(blk)
+            total += len(chunk)
+            lines_out.append(chunk)
+            lines_out.append("")
+        return {
+            "success": True,
+            "result": "\n".join(lines_out).strip(),
+            "file_count": len(hits),
+            "root": root,
+        }
+
+
 class ConnectorTool(BaseTool):
     """企业系统连接器工具（需求 §2.1）。
 
@@ -802,6 +932,9 @@ def create_tools(
         # 而不是让工具凭空消失（模型会因此不知道知识库功能的存在）。
         "knowledge": KnowledgeTool(),
         "code": CodeTool(allowed_roots=allowed_root_dirs),
+        # 代码定位（只读）：按关键词一步返回命中文件+行号+上下文，
+        # 客户端自身问题排查的取证入口（对齐豆包"梳理代码逻辑"）
+        "code_locate": CodeLocateTool(),
         # 联网能力：browser（运行时安全校验的网页抓取/正文提取）+
         # web_search（多 provider 搜索，未配置时 DuckDuckGo 免 Key 兜底）
         "browser": BrowserTool(),
