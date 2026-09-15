@@ -44,6 +44,13 @@ v2/
 - `chat.py` ChatRequest 新增 `work_mode` / `plan_confirmed` 字段透传；Ask 模式跳过 P1 记忆提取写入。
 - 前端：useUiStore.workMode（持久化）、ChatView 顶栏三模式切换器 + plan_awaiting_confirm 确认条（点「开始执行」以 plan_confirmed=true 重发续跑）。后台任务路径 tasks.py 暂不带模式（恒 craft）。
 
+## P0.8 视频生成工具（generate_video，异步任务式）
+
+- `agent/app/tools/video_tools.py`：GenerateVideoTool，**异步任务**：提交后轮询（上限 `_MAX_POLL_SECONDS`=480s，间隔 5s），超时返回「仍在生成中（含 task id）」而非假失败。自动探测两类端点：OpenAI 风格 `POST/GET /videos/generations{/id}`（提交 404/405 或轮询 404 时回退）→ 火山方舟 Seedance `POST/GET /contents/generations/tasks{/id}`；同步返回 `data[0].url` 的服务一步完成。产物落盘 `data/uploads/videos/vid-*.mp4`，返回 `path` + `url`（`/api/files/videos/{name}`，前端 `<video>` 播放）。
+- 配置：settings.json `video_api.{base_url,model}` + Key 钥匙串 ref=`video-api:key`（同 P0.7 模式）。
+- 前端：`VideoGenManager.tsx` 设置卡片 + MessageItem 视频交付预览。
+- 测试注意：工具内函数级 `import httpx`，mock 用 `patch.object(httpx, 'AsyncClient', ...)`（patch 模块属性无效）。
+
 ## P0.7 图像生成工具（generate_image，OpenAI 兼容端点）
 
 - `agent/app/tools/image_tools.py`：GenerateImageTool，POST `{base_url}/images/generations`（Bearer key），支持火山方舟 Seedream / OpenRouter 等任何兼容服务；产物落盘 `data/uploads/images/img-*.png`，返回 `path`（进交付卡片）+ `url`（`/api/files/images/{name}`，前端 `<img>` 预览）。

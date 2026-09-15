@@ -150,6 +150,8 @@ class SettingsUpdate(BaseModel):
     model_providers: list[dict] | None = None  # 私有模型提供商配置（迁移至 llm_servers）
     image_api: dict | None = None  # P0.7 图像生成：{base_url, model}
     image_api_key: str | None = None  # P0.7 图像生成 API Key（明文 → 钥匙串 image-api:key）
+    video_api: dict | None = None  # P0.8 视频生成：{base_url, model}
+    video_api_key: str | None = None  # P0.8 视频生成 API Key（明文 → 钥匙串 video-api:key）
 
 
 # 占位符：配置文件中 apiKey 字段仅存此标记，真实值在钥匙串（apiKeyRef）
@@ -206,6 +208,13 @@ async def get_settings() -> Dict[str, Any]:
     image_api = {k: v for k, v in image_api.items() if k in ("base_url", "model")}
     image_api["has_key"] = bool(keychain.retrieve_sync("image-api:key"))
     s["image_api"] = image_api
+    # P0.8 视频生成：同上
+    video_api = s.get("video_api") or {}
+    if not isinstance(video_api, dict):
+        video_api = {}
+    video_api = {k: v for k, v in video_api.items() if k in ("base_url", "model")}
+    video_api["has_key"] = bool(keychain.retrieve_sync("video-api:key"))
+    s["video_api"] = video_api
     return s
 
 
@@ -237,6 +246,23 @@ async def update_settings(body: SettingsUpdate) -> Dict[str, Any]:
             if v is not None:
                 img_cfg[k] = v
         updates["image_api"] = img_cfg
+    # P0.8 视频生成 Key：明文 → 钥匙串（不回写配置）
+    if "video_api_key" in updates:
+        new_key = (updates.pop("video_api_key") or "").strip()
+        if new_key and new_key != _PLACEHOLDER_KEY:
+            try:
+                await keychain.store("video-api:key", new_key)
+            except Exception:
+                logger.warning("[settings] keychain 不可用，视频生成 Key 未能安全存储")
+    if "video_api" in updates:
+        vid_cfg = current.get("video_api") or {}
+        if not isinstance(vid_cfg, dict):
+            vid_cfg = {}
+        for k in ("base_url", "model"):
+            v = (updates.get("video_api") or {}).get(k)
+            if v is not None:
+                vid_cfg[k] = v
+        updates["video_api"] = vid_cfg
     current.update(updates)
     _save_settings(current)
     return current

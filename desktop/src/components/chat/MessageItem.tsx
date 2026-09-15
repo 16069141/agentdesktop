@@ -412,14 +412,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
               {deliverFiles.map((filePath) => {
                 const fileName = filePath.split('/').pop() || filePath
                 const isImage = /\.(png|jpe?g|gif|webp)$/i.test(fileName)
-                // P0.7 图像生成产物：通过后端 HTTP 端点预览（data/uploads/images/）
+                const isVideo = /\.(mp4|mov|webm)$/i.test(fileName)
+                // P0.7/P0.8 生成产物：通过后端 HTTP 端点预览（data/uploads/images|videos/）
                 const previewUrl =
                   isImage && filePath.includes('/uploads/images/')
                     ? `${apiBase}/api/files/images/${encodeURIComponent(fileName)}`
-                    : null
+                    : isVideo && filePath.includes('/uploads/videos/')
+                      ? `${apiBase}/api/files/videos/${encodeURIComponent(fileName)}`
+                      : null
                 return (
                   <div key={filePath}>
-                    {previewUrl && (
+                    {previewUrl && isImage && (
                       <div
                         className="mb-1.5 rounded-lg overflow-hidden"
                         style={{ border: '1px solid var(--border-soft)', maxWidth: 320, background: 'var(--bg-elev)' }}
@@ -437,6 +440,20 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         />
                       </div>
                     )}
+                    {previewUrl && isVideo && (
+                      <div
+                        className="mb-1.5 rounded-lg overflow-hidden"
+                        style={{ border: '1px solid var(--border-soft)', maxWidth: 420, background: 'var(--bg-elev)' }}
+                      >
+                        <video
+                          src={previewUrl}
+                          controls
+                          preload="metadata"
+                          className="w-full h-auto block"
+                          style={{ maxHeight: 320 }}
+                        />
+                      </div>
+                    )}
                     <div
                       className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
                       style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}
@@ -445,7 +462,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
                         style={{ background: '#22c55e22', color: '#22c55e' }}
                       >
-                        {isImage ? '🖼️' : '📄'}
+                        {isImage ? '🖼️' : isVideo ? '🎬' : '📄'}
                       </span>
                       <span className="text-xs font-medium truncate flex-1" style={{ color: 'var(--text)' }} title={filePath}>
                         {fileName}

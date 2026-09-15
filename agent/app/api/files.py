@@ -32,6 +32,8 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # P0.7 图像生成产物目录（generate_image 工具落盘处，提供 HTTP 预览）
 IMAGES_DIR = UPLOADS_DIR / "images"
+# P0.8 视频生成产物目录（generate_video 工具落盘处，提供 HTTP 播放）
+VIDEOS_DIR = UPLOADS_DIR / "videos"
 
 
 @router.get("/images/{name}")
@@ -42,6 +44,17 @@ async def get_image(name: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="图片不存在或已过期")
     media = "image/jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
+    return FileResponse(path, media_type=media)
+
+
+@router.get("/videos/{name}")
+async def get_video(name: str):
+    """返回 generate_video 生成的视频（供前端 <video> 播放）。防路径穿越。"""
+    safe = "".join(c for c in Path(name).name if c.isalnum() or c in "._-")
+    path = VIDEOS_DIR / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="视频不存在或已过期")
+    media = "video/quicktime" if path.suffix.lower() == ".mov" else "video/mp4"
     return FileResponse(path, media_type=media)
 
 # 支持的扩展名 → 解析器标识

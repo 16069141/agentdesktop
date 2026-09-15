@@ -6,6 +6,7 @@ import EnterpriseManager from './EnterpriseManager'
 import SearchServersManager from './SearchServersManager'
 import McpServersManager from './McpServersManager'
 import ImageGenManager from './ImageGenManager'
+import VideoGenManager from './VideoGenManager'
 
 interface Settings {
   shell_whitelist: string[]
@@ -123,6 +124,9 @@ const SettingsView: React.FC = () => {
 
         {/* P0.7 图像生成服务（generate_image 工具） */}
         <ImageGenManager />
+
+        {/* P0.8 视频生成服务（generate_video 工具） */}
+        <VideoGenManager />
 
         {/* 企业身份与权限（Phase B P0） */}
         <EnterpriseManager />
