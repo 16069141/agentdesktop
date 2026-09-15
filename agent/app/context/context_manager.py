@@ -113,6 +113,16 @@ class ContextManager:
                 f"[context] 清理孤儿 tool 消息: {len(truncated_messages)} -> {len(cleaned)}"
             )
 
+        # 6) 保证消息序列中至少有一条 user 消息。
+        #    多轮工具循环 + 滑动窗口/预算压缩从头裁剪后，剩余序列可能只剩
+        #    assistant/tool 消息（实测：长任务执行 40+ 步骤时首轮 user 被裁掉，
+        #    部分 OpenAI 兼容网关直接 400 "No user query found in messages"）。
+        #    OpenAI 规范允许纯 system/assistant/tool 序列，但网关不认；
+        #    注入一条占位 user 消息即可恢复合法性，不改变语义。
+        if not any(m.get("role") == "user" for m in cleaned):
+            cleaned.append({"role": "user", "content": "请基于以上内容继续。"})
+            logger.warning("[context] 消息序列无 user 消息，已注入占位 user（防网关 400）")
+
         return {
             "system": system_prompt,
             "messages": cleaned,
