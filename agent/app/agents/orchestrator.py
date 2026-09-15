@@ -50,6 +50,42 @@ def get_current_conversation() -> str:
     return _current_conversation.get()
 
 
+# ── P0.5 自动续跑守卫 ─────────────────────────────────────────
+# 小模型最常见的"假智能"：只输出「我来测试…开始全面自测。」这类意图声明，
+# 一个工具都没调用就停住——把"计划"当成"答案"交付，用户问"怎么不继续"。
+# 守卫逻辑：本轮没有任何工具调用，且回复文本像"意图声明"时，
+# 注入系统提示并强制再跑一轮（上限 _AUTO_CONTINUE_MAX 次），让它真正动手。
+_PROMISE_TAIL_MARKERS = (
+    "开始", "开始吧", "开始执行", "现在开始", "开始全面", "着手", "开工",
+    "接下来", "下一步", "下面", "先来", "我来", "让我", "我打算", "我将", "我要",
+)
+_PROMISE_MID_MARKERS = (
+    "我来测试", "让我来", "我打算", "我将", "我要开始", "开始全面", "先执行",
+    "计划如下", "步骤如下", "我们开始", "准备开始", "先做", "首先", "先来",
+)
+_AUTO_CONTINUE_MAX = 2
+_AUTO_CONTINUE_HINT = (
+    "[系统提示] 你刚才只写了打算，没有实际执行任何工具调用。"
+    "请立即真正开始执行：多步骤任务先调用 create_plan 建立计划，然后逐项调用工具"
+    "（filesystem / shell / code / db_query / web_search 等）落实。"
+    "禁止再说「开始 / 接下来 / 让我」这类空话而不行动。直接调用工具干活。"
+)
+
+
+def _is_promise_text(text: str) -> bool:
+    """判断回复是否只是「意图声明」而没有实际行动。"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    # 尾段（最后 24 字）出现"开始/接下来/让我"等 → 典型的"说完就停"
+    if any(m in t[-24:] for m in _PROMISE_TAIL_MARKERS):
+        return True
+    # 全文出现强意图短语（"我来测试/我打算/计划如下"等）→ 也视为声明
+    if any(m in t for m in _PROMISE_MID_MARKERS):
+        return True
+    return False
+
+
 class AgentState:
     """Agent 状态（用类代替 TypedDict，避免强依赖 langgraph）。"""
 
@@ -461,6 +497,7 @@ class AgentOrchestrator:
             logger.error("[agent] 技能同步失败（不阻断会话）: %s", exc)
 
         turn = 0
+        _auto_continue = 0  # P0.5 自动续跑次数（防"意图声明式回答"）
         while turn < self._max_turns:
             turn += 1
 
@@ -613,7 +650,17 @@ class AgentOrchestrator:
 
             # ── 路由：有无工具调用？ ──
             if not all_tool_calls:
-                # 无工具调用 → 结束本轮
+                # 无工具调用 → 常规情况结束本轮。
+                # P0.5 自动续跑：若回复只是"意图声明"（说要做但没做），
+                # 注入提示强制它真正执行，而不是把计划当答案交付。
+                if _auto_continue < _AUTO_CONTINUE_MAX and _is_promise_text(assistant_content):
+                    _auto_continue += 1
+                    logger.info(
+                        "[agent] 检测到意图式回答（无工具调用），注入续跑提示 #%d",
+                        _auto_continue,
+                    )
+                    state.messages.append({"role": "user", "content": _AUTO_CONTINUE_HINT})
+                    continue
                 break
 
             # 有工具调用 → 执行工具，追加 role="tool" 消息后继续循环
