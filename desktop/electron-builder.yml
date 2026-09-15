@@ -29,6 +29,7 @@
   "artifactName": "${productName}-${version}-${arch}.${ext}",
   "asar": true,
   "compression": "maximum",
+  "afterPack": "scripts/after-pack-win.js",
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],
     "icon": "build/icon.ico",

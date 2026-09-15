@@ -10,8 +10,9 @@
 #   - 前端产物：cd desktop && npx tsc --noEmit && npx vite build（本脚本会检查）
 #
 # 已知约束（macOS 交叉构建 Windows）：
-#   1) electron-builder 的 win.signAndEditExecutable=false：
-#      macOS 无 wine 时跳过 rcedit 编辑 exe 图标/版本（功能不受影响，图标用默认 Electron）。
+#   1) win.signAndEditExecutable=false（macOS 无 wine，rcedit 不可用）→ 已用
+#      afterPack 钩子 desktop/scripts/after-pack-win.js（resedit 纯 JS 改 PE 资源）
+#      在 pack 后替换 exe 图标为 build/icon.ico，一键构建自带正确图标。
 #   2) NSIS 工具链从 GitHub Releases 下载，国内网络常超时：
 #      预置缓存 ~/Library/Caches/electron-builder/nsis/nsis-3.0.4.1.7z
 #      镜像源：https://registry.npmmirror.com/-/binary/electron-builder-binaries/nsis-3.0.4.1/nsis-3.0.4.1.7z

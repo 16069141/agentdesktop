@@ -110,6 +110,7 @@ cd v2/desktop && npx electron .
 - 一键脚本：`bash v2/scripts/build_windows.sh`（stage-release win-x64 → electron-builder --win nsis）。
 - electron-builder.yml：`win.signAndEditExecutable=false`（macOS 无 wine 时跳过 rcedit，exe 用默认图标/版本）。
 - **NSIS 工具链从 GitHub Releases 下载常超时**：预置缓存 `~/Library/Caches/electron-builder/nsis/nsis-3.0.4.1.7z`（+ nsis-resources-3.4.1.7z），镜像源 `https://registry.npmmirror.com/-/binary/electron-builder-binaries/nsis-3.0.4.1/nsis-3.0.4.1.7z`。
+- **exe 图标修复（无 wine 也能用）**：`win.signAndEditExecutable=false` 会跳过 rcedit → exe 保持 Electron 默认图标。已在 `electron-builder.yml` 挂 `afterPack: scripts/after-pack-win.js`（resedit 纯 JS 改 PE 资源，macOS 无需 wine），pack 后自动把 `build/icon.ico` 的 6 个尺寸写入 exe。resedit API 注意：`NtExecutableResource.from(exe)` 只收 exe 实例（新版），替换用 `Resource.IconGroupEntry.replaceIconsForResource(res.entries, groupId, lang, icons)`。验证：`wrestool -l`（brew icoutils，只读）+ `icotool -x` 提取对比哈希。
 - stage-release.sh 现在会捆绑 whisper 模型（agent/data/models → staging，electron-builder.yml agent filter 放行 `!**/data/uploads/**` 而非 `!**/data/**`）。
 - Windows 语音：speech.py `os.name=='nt'` → TTS 用 PowerShell System.Speech（SAPI，base64 传文本防转义），ASR 的 ffmpeg 找不到时 PyAV 兜底解码（faster-whisper 自带 av）。
 - agentProcess.ts 已跨平台（win32 → runtime/python/win-x64/python.exe，userData 存数据/配置）；electron-builder 的 win-unpacked 在 release/。
