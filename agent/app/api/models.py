@@ -81,31 +81,39 @@ def _classify_scope(base_url: str) -> str:
     return "public"
 
 
-async def _probe_all_providers_parallel(settings) -> list[dict]:
+async def _probe_all_providers_parallel(settings, allowed_map: dict | None = None) -> list[dict]:
     """并行探测所有模型服务器，单个连接失败/超时不影响整体。
 
     使用 asyncio.gather 并行 + wait_for 短超时，避免某个不可达连接
     串行卡住整个模型列表接口（此前会让客户端启动页等 15s+）。
+
+    无 /models 列表接口的连接（如讯飞星火）探测为空时，用该连接的
+    allowed_models 白名单兜底——白名单即用户手动声明的可用模型。
     """
     from ..providers.base import build_providers
     from ..storage.llm_servers import LlmServerRepo
 
+    if allowed_map is None:
+        allowed_map = _get_allowed_map()
     providers = build_providers(settings)
 
     async def probe(p):
         try:
             model_list = await asyncio.wait_for(p.list_models(), timeout=PROBE_TIMEOUT_SEC)
+        except Exception as exc:
+            print(f"[models] 探测 {p.provider_id} 失败: {exc}")
+            model_list = []
+        base_url = getattr(p, "base_url", "") or ""
+        scope = _classify_scope(base_url)
+        if model_list:
             # 探测成功 → 写回数据库缓存，下次启动 build_providers 直接预填充，接口秒回
-            if model_list:
-                try:
-                    repo = LlmServerRepo()
-                    await repo.save_models_cache(
-                        p.provider_id, [m.id for m in model_list]
-                    )
-                except Exception:
-                    pass
-            base_url = getattr(p, "base_url", "") or ""
-            scope = _classify_scope(base_url)
+            try:
+                repo = LlmServerRepo()
+                await repo.save_models_cache(
+                    p.provider_id, [m.id for m in model_list]
+                )
+            except Exception:
+                pass
             return [
                 {
                     "id": m.id,
@@ -117,15 +125,27 @@ async def _probe_all_providers_parallel(settings) -> list[dict]:
                 }
                 for m in model_list
             ]
-        except Exception as exc:
-            print(f"[models] 探测 {p.provider_id} 失败: {exc}")
-            return []
+        # 无模型列表接口（讯飞星火等）→ 白名单兜底，让用户手动填的模型可被选择
+        allowed = [a.strip() for a in (allowed_map.get(p.provider_id) or []) if a.strip()]
+        if allowed:
+            return [
+                {
+                    "id": a,
+                    "name": a,
+                    "providerId": p.provider_id,
+                    "isPublic": False,
+                    "scope": scope,
+                    "description": f"来自 {p.name}（无模型列表接口，白名单指定）",
+                }
+                for a in allowed
+            ]
+        return []
 
     results = await asyncio.gather(*(probe(p) for p in providers))
     return [m for group in results for m in group]
 
 
-async def _get_models_cached(settings, force: bool = False) -> list[dict]:
+async def _get_models_cached(settings, force: bool = False, allowed_map: dict | None = None) -> list[dict]:
     """带 TTL 的模型列表获取：非强制刷新时复用进程级缓存，接口秒回。"""
     now = time.time()
     if (
@@ -134,7 +154,7 @@ async def _get_models_cached(settings, force: bool = False) -> list[dict]:
         and (now - _MODEL_CACHE["ts"]) < _CACHE_TTL_SEC
     ):
         return _MODEL_CACHE["models"]
-    models = await _probe_all_providers_parallel(settings)
+    models = await _probe_all_providers_parallel(settings, allowed_map=allowed_map)
     _MODEL_CACHE["ts"] = now
     _MODEL_CACHE["models"] = models
     return models
@@ -146,7 +166,7 @@ async def list_models():
     try:
         settings = _load_settings()
         allowed_map = _get_allowed_map()
-        models = await _get_models_cached(settings)
+        models = await _get_models_cached(settings, allowed_map=allowed_map)
         return _filter_by_allowed(models, allowed_map)
     except Exception as exc:
         print(f"[models] 动态获取失败: {exc}")
@@ -162,7 +182,7 @@ async def refresh_models():
         from ..providers.base import build_providers
         for p in build_providers(settings):
             p._models = []  # 清除实例缓存
-        models = await _get_models_cached(settings, force=True)
+        models = await _get_models_cached(settings, force=True, allowed_map=allowed_map)
         filtered = _filter_by_allowed(models, allowed_map)
         return {"models": filtered, "count": len(filtered)}
     except Exception as exc:
