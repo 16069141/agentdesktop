@@ -458,7 +458,7 @@ const InputBox: React.FC<InputBoxProps> = ({
       <div className="max-w-4xl mx-auto">
         {/* 大圆角输入框 */}
         <div
-          className="rounded-2xl p-3 transition-all duration-150"
+          className={`rounded-2xl p-3 transition-all duration-150 neu-inset${dragging ? ' neu-dragging' : ''}`}
           style={{
             background: 'var(--surf-input)',
             border: dragging ? '2px dashed var(--accent)' : '1px solid var(--border)',

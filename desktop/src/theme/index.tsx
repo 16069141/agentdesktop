@@ -1,13 +1,17 @@
 import { useEffect } from 'react'
 import { useUiStore } from '../store/useUiStore'
-import { themeTokens, accentColors } from './tokens'
+import { themeTokens, accentColors, neuTokens } from './tokens'
 
 export function useTheme() {
-  const { theme, accent } = useUiStore()
+  const { theme, accent, uiStyle } = useUiStore()
 
   useEffect(() => {
     const root = document.documentElement
-    const t = themeTokens[theme]
+    // 新拟物风格在基础色板上叠加 neu 色板（覆盖表面色 + 提供软阴影变量）
+    const t = {
+      ...themeTokens[theme],
+      ...(uiStyle === 'neu' ? neuTokens[theme] : {}),
+    }
     const a = accentColors[accent]
 
     for (const [key, value] of Object.entries(t)) {
@@ -19,5 +23,6 @@ export function useTheme() {
 
     root.setAttribute('data-theme', theme)
     root.setAttribute('data-accent', accent)
-  }, [theme, accent])
+    root.setAttribute('data-style', uiStyle)
+  }, [theme, accent, uiStyle])
 }

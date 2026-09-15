@@ -438,3 +438,74 @@ body {
     padding: 0.4em 0.7em;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   新拟物（Neumorphism）风格层
+   ─ 由 useTheme 注入 data-style='neu' + neu 色板变量
+   ─ 扁平风格不受影响；与深色/浅色主题、强调色正交组合
+   ════════════════════════════════════════════════════════════════ */
+:root[data-style='neu'] body {
+  background:
+    radial-gradient(1100px 700px at 12% -8%, rgba(255, 255, 255, 0.55), transparent 55%),
+    radial-gradient(900px 650px at 108% 112%, rgba(150, 170, 205, 0.28), transparent 55%),
+    var(--bg);
+}
+:root[data-style='neu'][data-theme='dark'] body {
+  background:
+    radial-gradient(1100px 700px at 12% -8%, rgba(255, 255, 255, 0.05), transparent 55%),
+    radial-gradient(900px 650px at 108% 112%, rgba(120, 150, 220, 0.08), transparent 55%),
+    var(--bg);
+}
+
+/* 贴边外凸面板：侧栏 / 顶栏（去掉边框，改向外侧投影） */
+:root[data-style='neu'] .neu-panel {
+  border-color: transparent !important;
+}
+:root[data-style='neu'] .neu-panel.neu-sidebar {
+  box-shadow: var(--neu-edge-shadow);
+}
+:root[data-style='neu'] .neu-panel.neu-topbar {
+  box-shadow: var(--neu-strip-shadow);
+}
+
+/* 消息流卡片化：消息行变成柔和外凸卡片 */
+:root[data-style='neu'] .msg-row {
+  background: var(--bg-panel);
+  border-radius: 18px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  box-shadow: var(--neu-shadow-out-sm);
+}
+
+/* 消息卡片内部的子卡片（工具步骤 / 思考 / 附件 / 引用 / 生成图片）：
+   外凸小阴影，按下时内凹 */
+:root[data-style='neu'] .msg-row .rounded-lg {
+  box-shadow: var(--neu-shadow-out-sm);
+  transition: box-shadow 0.12s ease;
+}
+:root[data-style='neu'] .msg-row .rounded-lg:active {
+  box-shadow: var(--neu-shadow-in-sm);
+}
+
+/* 输入区：内凹输入槽（拖拽悬停时保留原强调反馈） */
+:root[data-style='neu'] .neu-inset:not(.neu-dragging) {
+  background: var(--bg) !important;
+  border-color: transparent !important;
+  box-shadow: var(--neu-shadow-in) !important;
+}
+/* 输入区底部工具条按钮：外凸小按钮，按下内凹 */
+:root[data-style='neu'] .neu-inset .rounded-lg {
+  box-shadow: var(--neu-shadow-out-sm);
+  transition: box-shadow 0.12s ease;
+}
+:root[data-style='neu'] .neu-inset .rounded-lg:not(:disabled):active {
+  box-shadow: var(--neu-shadow-in-sm);
+}
+
+/* 滚动条与选中在 neu 表面下保持可辨 */
+:root[data-style='neu'] ::-webkit-scrollbar-thumb {
+  background: rgba(20, 40, 70, 0.16);
+}
+:root[data-style='neu'][data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.13);
+}

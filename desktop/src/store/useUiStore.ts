@@ -26,6 +26,10 @@ interface UiState {
   accent: 'teal' | 'violet' | 'amber' | 'rose'
   setTheme: (theme: UiState['theme'], accent?: UiState['accent']) => void
 
+  // UI 风格：扁平（默认）/ 新拟物（Neumorphism）
+  uiStyle: 'flat' | 'neu'
+  setUiStyle: (style: UiState['uiStyle']) => void
+
   // 当前会话
   conversations: Conversation[]
   currentConversationId: string | null
@@ -107,6 +111,10 @@ export const useUiStore = create<UiState>()(
           theme,
           accent: accent || get().accent,
         }),
+
+      // UI 风格
+      uiStyle: 'flat',
+      setUiStyle: (uiStyle) => set({ uiStyle }),
 
       // 会话
       conversations: [],
@@ -258,6 +266,7 @@ export const useUiStore = create<UiState>()(
       partialize: (state) => ({
         theme: state.theme,
         accent: state.accent,
+        uiStyle: state.uiStyle,
         conversations: state.conversations,
         currentConversationId: state.currentConversationId,
         models: state.models,

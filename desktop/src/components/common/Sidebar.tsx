@@ -15,7 +15,7 @@ interface Ws { id: string; name: string; path: string }
 
 const Sidebar: React.FC = () => {
   const {
-    theme, accent, setTheme,
+    theme, accent, setTheme, uiStyle, setUiStyle,
     conversations, setConversations,
     currentConversationId, setCurrentConversationId,
     currentModelId,
@@ -211,7 +211,7 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className="flex flex-col h-full select-none"
+      className="flex flex-col h-full select-none neu-panel neu-sidebar"
       style={{
         width: '264px',
         flex: '0 0 264px',
@@ -358,6 +358,34 @@ const Sidebar: React.FC = () => {
               onClick={() => setTheme('light')}
             >
               ☀️ 浅色
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            风格
+          </span>
+          <div className="flex gap-1">
+            <button
+              className="px-2 py-0.5 rounded text-xs"
+              style={{
+                background: uiStyle === 'flat' ? accentColor : 'var(--bg-elev)',
+                color: uiStyle === 'flat' ? 'var(--accent-ink)' : 'var(--text-dim)',
+              }}
+              onClick={() => setUiStyle('flat')}
+            >
+              ⬜ 扁平
+            </button>
+            <button
+              className="px-2 py-0.5 rounded text-xs"
+              style={{
+                background: uiStyle === 'neu' ? accentColor : 'var(--bg-elev)',
+                color: uiStyle === 'neu' ? 'var(--accent-ink)' : 'var(--text-dim)',
+              }}
+              onClick={() => setUiStyle('neu')}
+            >
+              🧊 新拟物
             </button>
           </div>
         </div>

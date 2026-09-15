@@ -188,7 +188,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
       style={{
         userSelect: 'text',
         padding: '16px 0',
-        boxShadow: isSelected ? 'inset 3px 0 0 var(--accent)' : 'none',
+        boxShadow: isSelected ? 'inset 3px 0 0 var(--accent)' : undefined,
       }}
       onClick={() => onSelect(isSelected ? null : message.id)}
     >

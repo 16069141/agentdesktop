@@ -75,3 +75,43 @@ export const accentColors = {
     '--glow-2': 'rgba(167,139,250,0.16)',
   },
 }
+
+// 新拟物（Neumorphism）风格：覆盖基础色板 + 提供软阴影变量。
+// 与深色/浅色主题、强调色正交组合；扁平风格不注入这些变量。
+export const neuTokens = {
+  dark: {
+    '--bg': '#232730',
+    '--bg-panel': '#262B35',
+    '--bg-elev': '#2A303B',
+    '--bg-hover': 'rgba(255,255,255,0.05)',
+    '--border': 'rgba(255,255,255,0.06)',
+    '--border-soft': 'rgba(255,255,255,0.035)',
+    '--surf-input': '#232730',
+    '--code-bg': 'rgba(0,0,0,0.35)',
+    // 软阴影：外凸 / 内凹（暗色：深色在下、高光在上）
+    '--neu-shadow-out': '8px 8px 16px rgba(0,0,0,0.5), -8px -8px 16px rgba(255,255,255,0.07)',
+    '--neu-shadow-out-sm': '4px 4px 10px rgba(0,0,0,0.45), -4px -4px 10px rgba(255,255,255,0.06)',
+    '--neu-shadow-in': 'inset 5px 5px 10px rgba(0,0,0,0.55), inset -5px -5px 10px rgba(255,255,255,0.06)',
+    '--neu-shadow-in-sm': 'inset 3px 3px 7px rgba(0,0,0,0.5), inset -3px -3px 7px rgba(255,255,255,0.05)',
+    // 贴边面板：侧栏 / 顶栏（只向外侧投影）
+    '--neu-edge-shadow': '8px 0 16px -8px rgba(0,0,0,0.6), -2px 0 8px -4px rgba(255,255,255,0.08)',
+    '--neu-strip-shadow': '0 8px 16px -10px rgba(0,0,0,0.55), 0 -2px 8px -4px rgba(255,255,255,0.07)',
+  },
+  light: {
+    '--bg': '#E3E8F1',
+    '--bg-panel': '#E6EBF4',
+    '--bg-elev': '#EBF0F7',
+    '--bg-hover': 'rgba(25,45,75,0.06)',
+    '--border': 'rgba(20,40,70,0.06)',
+    '--border-soft': 'rgba(20,40,70,0.035)',
+    '--surf-input': '#E3E8F1',
+    '--code-bg': 'rgba(255,255,255,0.55)',
+    // 软阴影：外凸 / 内凹（浅色：高光在上、深色在下）
+    '--neu-shadow-out': '8px 8px 16px rgba(163,174,191,0.55), -8px -8px 16px rgba(255,255,255,0.9)',
+    '--neu-shadow-out-sm': '4px 4px 10px rgba(163,174,191,0.5), -4px -4px 10px rgba(255,255,255,0.85)',
+    '--neu-shadow-in': 'inset 5px 5px 10px rgba(163,174,191,0.55), inset -5px -5px 10px rgba(255,255,255,0.9)',
+    '--neu-shadow-in-sm': 'inset 3px 3px 7px rgba(163,174,191,0.5), inset -3px -3px 7px rgba(255,255,255,0.85)',
+    '--neu-edge-shadow': '8px 0 16px -8px rgba(40,60,90,0.28), -2px 0 8px -4px rgba(255,255,255,0.75)',
+    '--neu-strip-shadow': '0 8px 16px -10px rgba(40,60,90,0.3), 0 -2px 8px -4px rgba(255,255,255,0.7)',
+  },
+}

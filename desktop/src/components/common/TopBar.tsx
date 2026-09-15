@@ -45,7 +45,7 @@ const TopBar: React.FC = () => {
 
   return (
     <div
-      className="flex items-center gap-1 px-3 py-2 border-b"
+      className="flex items-center gap-1 px-3 py-2 border-b neu-panel neu-topbar"
       style={{
         borderColor: 'var(--border-soft)',
         background: 'var(--bg-panel)',
