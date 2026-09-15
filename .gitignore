@@ -56,3 +56,6 @@ nohup.out
 
 # 独立发布的技能市场仓库（自含 git，单独同步到 16069141/skill-hub）
 skill-hub/
+
+# 运行时上传/产物数据（不提交）
+data/
