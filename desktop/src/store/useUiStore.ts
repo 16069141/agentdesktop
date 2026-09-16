@@ -26,10 +26,6 @@ interface UiState {
   accent: 'teal' | 'violet' | 'amber' | 'rose'
   setTheme: (theme: UiState['theme'], accent?: UiState['accent']) => void
 
-  // UI 风格：扁平（默认）/ Windows 11 Fluent
-  uiStyle: 'flat' | 'windows'
-  setUiStyle: (style: UiState['uiStyle']) => void
-
   // 当前会话
   conversations: Conversation[]
   currentConversationId: string | null
@@ -111,10 +107,6 @@ export const useUiStore = create<UiState>()(
           theme,
           accent: accent || get().accent,
         }),
-
-      // UI 风格
-      uiStyle: 'flat',
-      setUiStyle: (uiStyle) => set({ uiStyle }),
 
       // 会话
       conversations: [],
@@ -263,16 +255,9 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'private-ai-ui-state',
-      // 老版本持久化了 'neu'（新拟物）风格，已下线 → 迁移为 'windows'
-      merge: (persisted, current) => {
-        const merged = { ...(current as object), ...(persisted as object) } as Record<string, unknown>
-        if (merged.uiStyle === 'neu') merged.uiStyle = 'windows'
-        return merged as typeof current
-      },
       partialize: (state) => ({
         theme: state.theme,
         accent: state.accent,
-        uiStyle: state.uiStyle,
         conversations: state.conversations,
         currentConversationId: state.currentConversationId,
         models: state.models,

@@ -440,90 +440,7 @@ body {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Windows 11 Fluent 风格层
-   ─ 由 useTheme 注入 data-style='windows' + win 色板变量
-   ─ 扁平风格不受影响；与深色/浅色主题、强调色正交组合
-   ════════════════════════════════════════════════════════════════ */
-:root[data-style='windows'] body {
-  background:
-    radial-gradient(1200px 800px at 15% -10%, rgba(255,255,255,0.10), transparent 60%),
-    radial-gradient(1000px 700px at 110% 115%, rgba(120,160,255,0.06), transparent 60%),
-    var(--bg);
-}
-:root[data-style='windows'][data-theme='dark'] body {
-  background:
-    radial-gradient(1200px 800px at 15% -10%, rgba(255,255,255,0.035), transparent 60%),
-    radial-gradient(1000px 700px at 110% 115%, rgba(120,160,255,0.05), transparent 60%),
-    var(--bg);
-}
-
-/* 贴边面板：侧栏 / 顶栏（去投影，改细分隔线，贴近 Windows 11 设置/资源管理器） */
-:root[data-style='windows'] .neu-panel {
-  border-color: transparent !important;
-}
-:root[data-style='windows'] .neu-panel.neu-sidebar {
-  border-right: var(--win-edge-line) !important;
-  box-shadow: none;
-}
-:root[data-style='windows'] .neu-panel.neu-topbar {
-  border-bottom: var(--win-strip-line) !important;
-  box-shadow: none;
-}
-
-/* 消息流：扁平卡片（Windows 11 列表卡片：细边框 + 柔和投影） */
-:root[data-style='windows'] .msg-row {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  padding: 14px 18px;
-  margin-bottom: 10px;
-  box-shadow: var(--win-shadow-card);
-}
-
-/* 消息卡片内部子卡片（工具步骤 / 思考 / 附件 / 引用 / 生成图片）：轻微浮动 */
-:root[data-style='windows'] .msg-row .rounded-lg {
-  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-  transition: box-shadow 0.12s ease;
-}
-:root[data-style='windows'] .msg-row .rounded-lg:active {
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-}
-
-/* 输入区：Windows 文本框（表面底 + 聚焦强调边框） */
-:root[data-style='windows'] .neu-inset:not(.neu-dragging) {
-  background: var(--surf-input) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-:root[data-style='windows'] .neu-inset:not(.neu-dragging):focus-within {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 3px var(--accent-soft) !important;
-}
-:root[data-style='windows'] .neu-inset .rounded-lg {
-  border-radius: 8px;
-  transition: background 0.12s ease;
-}
-:root[data-style='windows'] .neu-inset .rounded-lg:not(:disabled):hover {
-  background: var(--bg-hover);
-}
-:root[data-style='windows'] .neu-inset .rounded-lg:not(:disabled):active {
-  background: var(--bg-elev);
-}
-
-/* 滚动条在 Windows 表面下保持可辨 */
-:root[data-style='windows'] ::-webkit-scrollbar-thumb {
-  background: rgba(20,40,70,0.18);
-  border-radius: 4px;
-}
-:root[data-style='windows'][data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.14);
-  border-radius: 4px;
-}
-
-/* ════════════════════════════════════════════════════════════════
-   Windows 11 风格组件样式（Fluent）
+   基础组件样式（扁平化）
    ════════════════════════════════════════════════════════════════ */
 
 /* 卡片容器：扁平卡片 */
@@ -531,12 +448,12 @@ body {
   background: var(--bg-panel);
   border-radius: 12px;
   border: 1px solid var(--border-soft);
-  box-shadow: var(--win-shadow-card);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.18);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .neu-card:hover {
-  box-shadow: var(--win-shadow-float);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
   transform: translateY(-1px);
 }
 
@@ -547,7 +464,7 @@ body {
   border-radius: 10px;
 }
 
-/* 主要按钮 - Fluent 强调色按钮 */
+/* 主要按钮 - 强调色按钮 */
 .neu-btn-primary {
   background: var(--accent);
   color: var(--accent-ink);
@@ -578,7 +495,7 @@ body {
   cursor: not-allowed;
 }
 
-/* 次要按钮 - Fluent 次级按钮 */
+/* 次要按钮 - 次级按钮 */
 .neu-btn-secondary {
   background: var(--bg-panel);
   color: var(--text);
@@ -617,7 +534,7 @@ body {
   border-color: var(--danger);
 }
 
-/* 输入框 - Fluent 文本框 */
+/* 输入框 - 文本框 */
 .neu-input {
   background: var(--surf-input);
   border: 1px solid var(--border);
