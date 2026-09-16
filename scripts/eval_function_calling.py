@@ -46,7 +46,7 @@ TASKS: List[Dict] = [
     {"id": "locate", "prompt": "客户端代码里 normalize_v1_url 这个函数在哪个文件哪一行？用代码定位工具",
      "expect_tool": "code_locate", "expect_action": None, "desc": "定位代码"},
     # code
-    {"id": "code-an", "prompt": "分析一下 agent/app/agents/orchestrator.py 的代码结构（函数/类数量）",
+    {"id": "code-an", "prompt": "统计 agent/app/agents/orchestrator.py 的代码行数、函数数量、类数量，并给出整体复杂度分析（用代码分析工具）",
      "expect_tool": "code", "expect_action": "analyze", "desc": "代码分析"},
     # shell
     {"id": "sh-py", "prompt": "用命令查看当前 Python 版本号",
