@@ -26,7 +26,9 @@ class DocToHtmlTool(BaseTool):
     description = (
         "把 Word 文档（.docx）转换为 HTML 正文。"
         "输入 docx 文件的绝对路径，返回 HTML 内容（正文结构 + 文本，图片以 base64 内嵌）。"
-        "适合把用户上传的 Word 文档提炼为 HTML 页面的场景。"
+        "适合把用户上传的 Word 文档提炼为 HTML 页面的场景。\n"
+        "与 generate_html 的区别：本工具是「docx → 正文 HTML」的格式转换，"
+        "不做视觉美化；要生成带设计系统/图表/多区块的精美页面请用 generate_html。"
     )
     requires_approval = False
 
@@ -103,6 +105,8 @@ class HtmlGeneratorTool(BaseTool):
         "根据结构化 JSON 内容生成精美 HTML 页面文件。"
         "模板引擎自动套用 CSS 设计系统（配色、字体、间距、响应式），"
         "支持 Chart.js 图表、内联 SVG 图标库、中文排版优化。\n"
+        "与 doc_to_html 的区别：本工具从零生成带设计的完整页面（JSON 内容 → 成品页面）；"
+        "doc_to_html 只做 Word 文档 → 正文 HTML 的格式转换。\n"
         "参数说明：\n"
         "  - title: 页面标题（必填）\n"
         "  - template: 模板类型，可选 report(分析报告) / dashboard(数据看板) / comparison(对比分析) / landing(落地页)\n"

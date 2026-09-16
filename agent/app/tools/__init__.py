@@ -36,7 +36,14 @@ class FilesystemTool(BaseTool):
     """文件系统工具（受限根目录）。"""
 
     name = "filesystem"
-    description = "读取/写入文件、列出目录、搜索文件。操作限制在 allowed_root_dirs 内。"
+    description = (
+        "读写本地文件、列出目录、按 glob 搜索文件（操作限制在授权目录内）。\n"
+        "何时用：用户要求读取/创建/修改本地文件、查看目录内容、在磁盘上查找文件。\n"
+        "何时不用：定位客户端自身代码位置用 code_locate；查企业内部资料用 knowledge；"
+        "联网内容用 web_search/browser；需要真实执行命令用 shell。\n"
+        "失败表现：路径不存在或超出授权目录会返回 error（含原因），"
+        "请先列父目录确认真实路径再重试；read 返回内容截断至 10000 字符。"
+    )
     requires_approval = False
 
     parameters = {
@@ -45,19 +52,19 @@ class FilesystemTool(BaseTool):
             "action": {
                 "type": "string",
                 "enum": ["read", "write", "list", "search"],
-                "description": "操作类型：read 读文件 / write 写文件 / list 列目录 / search 按 glob 搜索文件",
+                "description": "操作类型：read 读文件（返回前 10000 字符）/ write 写文件（自动建父目录）/ list 列目录（返回前 100 项）/ search 按 glob 递归搜索文件（返回前 50 个）",
             },
             "path": {
                 "type": "string",
-                "description": "目标文件或目录的绝对路径",
+                "description": "目标文件或目录的绝对路径（相对路径基于用户主目录解析）；不存在或越权会返回 error",
             },
             "content": {
                 "type": "string",
-                "description": "action=write 时必填：要写入的文本内容",
+                "description": "action=write 时必填：要写入的文本内容（禁止覆盖 ~/.zshrc、~/.ssh 等敏感配置）",
             },
             "pattern": {
                 "type": "string",
-                "description": "action=search 时使用的 glob 模式，如 '*.py'，默认 '*'",
+                "description": "action=search 时的 glob 模式（如 '*.py'、'**/*.md'），在 path 目录下递归匹配文件，默认 '*'",
             },
         },
         "required": ["action", "path"],
@@ -124,7 +131,15 @@ class ShellTool(BaseTool):
     """Shell 命令工具（白名单 + 确认 + 超时 + 审计）。"""
 
     name = "shell"
-    description = "执行 shell 命令（白名单校验、UI 确认、超时限制、全量审计）"
+    description = (
+        "执行 shell 命令（运行脚本、启动/停止服务、查看进程、安装依赖等真实命令操作）。\n"
+        "何时用：必须真实执行命令时（文件读写用 filesystem，抓取网页用 browser，"
+        "代码静态分析用 code，代码定位用 code_locate）。\n"
+        "约束：命令经白名单校验，危险命令（rm -rf、mkfs、dd 等）会被拦截；"
+        "高危命令需用户确认；有超时限制；长输出会被截断。\n"
+        "失败表现：返回退出码与错误输出，请据错误修正命令后重试，"
+        "不要重复完全相同的失败命令。"
+    )
     requires_approval = True
 
     parameters = {
@@ -132,7 +147,7 @@ class ShellTool(BaseTool):
         "properties": {
             "command": {
                 "type": "string",
-                "description": "要执行的 shell 命令，如 'ls -la /tmp'。禁止危险命令（rm -rf、mkfs、dd 等）",
+                "description": "要执行的 shell 命令，如 'ls -la /tmp'。禁止危险命令（rm -rf、mkfs、dd、fork 炸弹等）；优先只读/幂等命令，破坏性操作先说明后果",
             },
             "cwd": {
                 "type": "string",
@@ -184,7 +199,12 @@ class KnowledgeTool(BaseTool):
     """
 
     name = "knowledge"
-    description = "企业知识库检索（RAG / Wiki，带引用溯源：来源 + 标题 + 摘要 + 链接），从已配置的知识库连接中检索"
+    description = (
+        "企业知识库检索（RAG / Wiki，带引用溯源：来源 + 标题 + 摘要 + 链接），"
+        "从已配置的知识库连接中检索。\n"
+        "何时用：查公司制度、内部资料、历史项目文档、团队知识沉淀。\n"
+        "何时不用：查询目标是本地文件时用 filesystem；定位客户端自身代码用 code_locate。"
+    )
     requires_approval = False
 
     parameters = {
@@ -315,15 +335,15 @@ class CodeTool(BaseTool):
             },
             "path": {
                 "type": "string",
-                "description": "要分析的代码文件路径（与 code 二选一）",
+                "description": "要分析的代码文件绝对路径（与 code 参数二选一，推荐用 path 指向真实文件）",
             },
             "code": {
                 "type": "string",
-                "description": "可选：直接传入代码片段（不指定 path 时使用）",
+                "description": "可选：直接传入代码片段（仅当没有真实文件路径时使用）",
             },
             "language": {
                 "type": "string",
-                "description": "代码语言，如 python / typescript / javascript",
+                "description": "代码语言，如 python / typescript / javascript / java / go；自动识别时可省略",
             },
         },
         "required": ["action"],
@@ -690,7 +710,9 @@ class RpaTool(BaseTool):
 
     name = "rpa"
     description = (
-        "RPA 模拟操作（适配无接口遗留系统；P1 骨架预留，Playwright 驱动 P2 接入）"
+        "RPA 模拟操作（模拟点击/输入/提取，适配无接口遗留系统）。"
+        "【当前不可用】执行器尚未接入（P1 骨架预留），任何调用都会返回失败。"
+        "请勿调用本工具；需要接入外部系统时改用数据库只读（db_query）或浏览器抓取（browser）。"
     )
     requires_approval = False
 
