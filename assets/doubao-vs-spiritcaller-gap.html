@@ -1,0 +1,99 @@
+<html style="margin:0;padding:0;">
+<div style="width:100%;box-sizing:border-box;background:#0f1117;color:#e8eaf0;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;padding:28px 32px;line-height:1.6;">
+  <div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:4px;">同一问题：颤翎子 vs 豆包 —— 差距在哪、怎么补齐</div>
+  <div style="font-size:13px;color:#9aa3b2;margin-bottom:24px;">问题：`.../v2/chat/completions/v1/models → 404`（讯飞 MaaS 连接）· 2026-09-15</div>
+
+  <!-- 行为对照 -->
+  <div style="font-size:15px;font-weight:600;color:#7dd3fc;margin:8px 0 12px;">① 同一问题的两种处理方式（截图对照）</div>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:26px;">
+    <div style="flex:1 1 420px;min-width:380px;background:#171b26;border:1px solid #3a2a2a;border-radius:10px;padding:16px;">
+      <div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:8px;">颤翎子AI助手（deepseek-v4-pro）→ "顾问"式</div>
+      <div style="font-size:13px;color:#cbd2de;">
+        <div style="padding:3px 0;">▸ 给教程：「让客户端自己拼接 /v1/models」</div>
+        <div style="padding:3px 0;">▸ 让用户去官方文档确认区域（cn-hubei-1…）</div>
+        <div style="padding:3px 0;">▸ 搜索两次跑偏，区域名推断错误（hubei ≠ huabei）</div>
+        <div style="padding:3px 0;color:#fbbf24;">▸ 承认「是推测，不是官方原文」</div>
+        <div style="padding:3px 0;color:#94a3b8;">▸ 没有读自己代码库 → 问题留给用户手工做</div>
+      </div>
+    </div>
+    <div style="flex:1 1 420px;min-width:380px;background:#171b26;border:1px solid #1c3a2c;border-radius:10px;padding:16px;">
+      <div style="font-size:14px;font-weight:700;color:#86efac;margin-bottom:8px;">豆包 → "工程师"式</div>
+      <div style="font-size:13px;color:#cbd2de;">
+        <div style="padding:3px 0;">▸ 判定：「URL 拼错了，是客户端路径拼接逻辑问题」</div>
+        <div style="padding:3px 0;">▸ 代码定位三步：测试按钮接口 → normalize_v1_url → provider</div>
+        <div style="padding:3px 0;">▸ 根因确认：无脑补 /v1 → /chat/completions/v1/models</div>
+        <div style="padding:3px 0;">▸ 修复方案：三处改点（normalize / provider 剥根 / 404 回退）</div>
+        <div style="padding:3px 0;color:#94a3b8;">▸ 直接实施修改并验证</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 四层差距 -->
+  <div style="font-size:15px;font-weight:600;color:#7dd3fc;margin:8px 0 12px;">② 差距本质：四层能力金字塔（越底层影响越大）</div>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:26px;">
+    <div style="flex:1 1 440px;min-width:400px;">
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#fff;font-weight:600;">L1 模型能力</span><span style="color:#f87171;font-weight:700;">差距最大 · 天花板</span></div>
+        <div style="height:14px;background:#232838;border-radius:7px;"><div style="width:85%;height:14px;background:linear-gradient(90deg,#ef4444,#f87171);border-radius:7px;"></div></div>
+        <div style="font-size:12px;color:#9aa3b2;margin-top:4px;">豆包=顶级模型（推理/代码/工具调用）；颤翎子=用户配置的第三方模型。模型弱→不敢下结论、给教程、靠猜。</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#fff;font-weight:600;">L2 自我认知（Agent 身份）</span><span style="color:#f87171;font-weight:700;">差距大 · 直接原因</span></div>
+        <div style="height:14px;background:#232838;border-radius:7px;"><div style="width:78%;height:14px;background:linear-gradient(90deg,#ef4444,#fbbf24);border-radius:7px;"></div></div>
+        <div style="font-size:12px;color:#9aa3b2;margin-top:4px;">豆包知道自己"在能读代码的环境里"；颤翎子不知道自己运行在自己客户端内、代码库在哪、能不能改 → 根本没尝试读代码。</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#fff;font-weight:600;">L3 工具链 / 编排</span><span style="color:#f59e0b;font-weight:700;">差距中 · 可快速补齐</span></div>
+        <div style="height:14px;background:#232838;border-radius:7px;"><div style="width:55%;height:14px;background:linear-gradient(90deg,#f59e0b,#fbbf24);border-radius:7px;"></div></div>
+        <div style="font-size:12px;color:#9aa3b2;margin-top:4px;">豆包：强搜索（多轮+交叉验证）、代码分析、执行闭环；颤翎子：有 filesystem/shell/code 但搜索两次跑偏、无代码库感知、无"定位→修复→验证"引导。</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#fff;font-weight:600;">L4 产品生态</span><span style="color:#f59e0b;font-weight:700;">差距中 · 已起步</span></div>
+        <div style="height:14px;background:#232838;border-radius:7px;"><div style="width:40%;height:14px;background:linear-gradient(90deg,#f59e0b,#86efac);border-radius:7px;"></div></div>
+        <div style="font-size:12px;color:#9aa3b2;margin-top:4px;">豆包：知识库/项目/记忆/技能/用量全闭环；颤翎子：已有记忆 P1、技能市场、定时 P2、多智能体 P3、三模式 P0.5——骨架在，缺"知识库/项目"两块。</div>
+      </div>
+    </div>
+    <div style="flex:0 1 300px;min-width:260px;background:#171b26;border:1px solid #2a3145;border-radius:10px;padding:16px;">
+      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:10px;">💡 关键洞察</div>
+      <div style="font-size:13px;color:#cbd2de;">
+        <div style="padding:5px 0;border-bottom:1px solid #242b3d;">这次 404 是颤翎子自己代码的 bug，最优解就是"读自己的代码"。颤翎子没做，不是没有工具——是<span style="color:#7dd3fc;font-weight:600;">没被告知"可以改自己的代码"</span>。</div>
+        <div style="padding:5px 0;border-bottom:1px solid #242b3d;">同题实测：我（豆包办公侧）在颤翎子代码库里真实完成了这套修复并验证通过（提交 09d6e29）。说明<span style="color:#86efac;font-weight:600;">代码能力具备，缺的是模型配置与自我认知</span>。</div>
+        <div style="padding:5px 0;">教训：换强模型 + 注入"代码库感知" ≈ 解决 80% 的"智能差距"观感。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 补齐路线 -->
+  <div style="font-size:15px;font-weight:600;color:#7dd3fc;margin:8px 0 12px;">③ 补齐路线（P0 立即可做 → P2 对齐产品）</div>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;">
+    <div style="flex:1 1 300px;min-width:280px;background:#171b26;border-top:3px solid #ef4444;border-radius:10px;padding:14px;">
+      <div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:8px;">P0 · 这周（差距直接原因）</div>
+      <div style="font-size:12.5px;color:#cbd2de;">
+        <div style="padding:4px 0;"><span style="color:#fca5a5;">◼</span> 代码库感知：启动注入仓库路径 + AGENTS.md 关键文件地图到 system prompt</div>
+        <div style="padding:4px 0;"><span style="color:#fca5a5;">◼</span> 身份引导：「问客户端内部问题时直接读代码定位修复，而非给教程」</div>
+        <div style="padding:4px 0;"><span style="color:#fca5a5;">◼</span> 模型引导：连接页标注推荐强模型，对话页显示模型能力等级</div>
+        <div style="padding:4px 0;"><span style="color:#fca5a5;">◼</span> 搜索提示词：官方文档 site: 优先 + 失败自动换词重试</div>
+      </div>
+    </div>
+    <div style="flex:1 1 300px;min-width:280px;background:#171b26;border-top:3px solid #f59e0b;border-radius:10px;padding:14px;">
+      <div style="font-size:14px;font-weight:700;color:#fbbf24;margin-bottom:8px;">P1 · 两周（工具链闭环）</div>
+      <div style="font-size:12.5px;color:#cbd2de;">
+        <div style="padding:4px 0;"><span style="color:#fbbf24;">◼</span> 代码定位专用工具：一步 grep 出相关文件/函数，模型不猜位置</div>
+        <div style="padding:4px 0;"><span style="color:#fbbf24;">◼</span> 修复四步卡：定位 → 方案 → 修改 → 验证（对齐豆包侧边栏）</div>
+        <div style="padding:4px 0;"><span style="color:#fbbf24;">◼</span> 多轮搜索交叉验证：搜不到自动换源，结果带引用</div>
+        <div style="padding:4px 0;"><span style="color:#fbbf24;">◼</span> 记忆增强：同类问题（如"连接配置"）自动带出历史修复结论</div>
+      </div>
+    </div>
+    <div style="flex:1 1 300px;min-width:280px;background:#171b26;border-top:3px solid #86efac;border-radius:10px;padding:14px;">
+      <div style="font-size:14px;font-weight:700;color:#86efac;margin-bottom:8px;">P2 · 一个月（对齐豆包产品）</div>
+      <div style="font-size:12.5px;color:#cbd2de;">
+        <div style="padding:4px 0;"><span style="color:#86efac;">◼</span> 知识库 RAG：用户文档/网页入库，问答可引用（豆包的"知识库"）</div>
+        <div style="padding:4px 0;"><span style="color:#86efac;">◼</span> 项目/工作区：多会话按项目分组，共享上下文与产物（豆包的"项目"）</div>
+        <div style="padding:4px 0;"><span style="color:#86efac;">◼</span> 用量与成本可见：token 消耗、模型选择成本提示（豆包的"用量"）</div>
+        <div style="padding:4px 0;"><span style="color:#86efac;">◼</span> 对话分区/上下文管理 UI（豆包的"对话分区"）</div>
+      </div>
+    </div>
+  </div>
+  <div style="font-size:12px;color:#9aa3b2;margin-top:18px;border-top:1px solid #242b3d;padding-top:10px;">结论：颤翎子与豆包的差距 80% 在「模型配置 + 自我认知」，20% 在工具编排——这两块都是纯工程投入、可在一个迭代内显著拉近。产品生态差距（知识库/项目）用 P2 对齐。</div>
+</div>
+</html>
