@@ -5,6 +5,7 @@
 - 滑动窗口默认 20 轮
 - 超长工具结果截断/摘要后入上下文
 """
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +40,72 @@ class ContextManager:
         if len(result) <= self.tool_result_max_chars:
             return result
         return result[: self.tool_result_max_chars] + "\n...[truncated]"
+
+    def summarize_tool_result(self, result: str) -> str:
+        """超长工具结果 → 结构化摘要（L3：省 token 且防模型幻觉）。
+
+        - JSON 对象/数组：保持结构骨架，逐字段截断，最终序列化长度 ≤ 上限；
+        - 纯文本：保留头部（通常含结论）与尾部（通常含报错），中间省略；
+        - 结果末尾附「完整内容读取指引」，模型可自行决定是否需要按需读取。
+        """
+        limit = self.tool_result_max_chars
+        if len(result) <= limit:
+            return result
+
+        stripped = result.lstrip()
+        if stripped[:1] in "[{":
+            try:
+                data = json.loads(result)
+                obj = self._summarize_json(data)
+                s = json.dumps(obj, ensure_ascii=False)
+                if len(s) <= limit:
+                    return s
+                # 仍超限：压缩顶层字段值（键名保留），再不行折叠为字段清单
+                if isinstance(obj, dict):
+                    obj2 = {
+                        str(k): self._summarize_json(v, 80)
+                        for k, v in list(obj.items())[:12]
+                    }
+                    s2 = json.dumps(obj2, ensure_ascii=False)
+                    if len(s2) <= limit:
+                        return s2
+                    return json.dumps(
+                        {"_fields": [str(k) for k in obj.keys()], "_note": "值过长已省略"},
+                        ensure_ascii=False,
+                    )
+            except Exception:
+                pass
+
+        omitted = len(result) - limit
+        marker = (
+            f"\n...[结果过长，中间省略约 {omitted} 字符；"
+            "若需要完整内容，请用相应工具按需读取（如按行/分页读取）]...\n"
+        )
+        head = max(0, int((limit - len(marker)) * 0.6))
+        tail = max(0, limit - len(marker) - head)
+        if head + tail >= len(result):
+            return result
+        return result[:head] + marker + result[-tail:]
+
+    def _summarize_json(self, data: Any, max_str: int = 150, _depth: int = 0) -> Any:
+        """递归压缩 JSON 为可序列化对象：保留结构骨架、长字符串截断、深度≥4 折叠。
+
+        返回 Python 对象（dict/list/标量），由调用方在最外层序列化。
+        """
+        if isinstance(data, str):
+            return data if len(data) <= max_str else data[:max_str] + f"...[省略 {len(data)-max_str} 字符]"
+        if _depth >= 4:
+            return "[深层数据已折叠]"
+        if isinstance(data, dict):
+            return {str(k): self._summarize_json(v, max_str, _depth + 1) for k, v in data.items()}
+        if isinstance(data, list):
+            n = len(data)
+            if n > 6:
+                out = [self._summarize_json(x, max_str, _depth + 1) for x in data[:6]]
+                out.append(f"...(共 {n} 项，其余省略)")
+                return out
+            return [self._summarize_json(x, max_str, _depth + 1) for x in data]
+        return data
 
     def build_context(
         self,

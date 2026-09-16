@@ -140,6 +140,54 @@ class AgentState:
         self.should_summarize = should_summarize
 
 
+def _format_tool_error(tool_name: str, exc: Exception) -> str:
+    """把工具异常映射为结构化错误（L3）：error_type / retryable / 修复建议。
+
+    结构化文本直接作为 role=tool 消息回填下一轮上下文，模型据此自我纠正，
+    而非看到一行裸异常后手足无措或重复相同调用。
+    """
+    msg = str(exc) or exc.__class__.__name__
+    low = msg.lower()
+    etype, retryable, suggestion = "unknown", False, (
+        "请检查工具参数与运行环境后重试；若无法修复，换一种实现方式完成目标。"
+    )
+    if isinstance(exc, (FileNotFoundError,)):
+        etype, retryable = "not_found", True
+        suggestion = (
+            "目标路径或文件不存在：先用 filesystem 列出父目录确认真实路径，"
+            "或改用 search 定位后再操作。"
+        )
+    elif any(k in low for k in ("permission", "denied", "not authorized", "forbidden")):
+        etype, retryable = "permission", False
+        suggestion = (
+            "权限不足：换用允许范围内的操作，或向用户说明所需权限、请其处理。"
+        )
+    elif any(k in low for k in ("timeout", "timed out")):
+        etype, retryable = "timeout", True
+        suggestion = (
+            "操作超时：可重试一次；若仍超时，请缩小任务范围（如分批、按行处理）。"
+        )
+    elif any(k in low for k in ("connection", "network", "resolve", "refused", "unreachable")):
+        etype, retryable = "network", True
+        suggestion = (
+            "网络或服务连接失败：稍后重试；若是远程服务，检查 base_url / key 配置。"
+        )
+    elif any(k in low for k in ("invalid", "argument", "bad request", "400", "422")):
+        etype, retryable = "invalid_args", True
+        suggestion = (
+            "参数不合法：检查参数格式、取值与必填项（enum / required / 路径写法）后重试。"
+        )
+    return (
+        f"[工具执行失败]\n"
+        f"工具: {tool_name}\n"
+        f"错误类型: {etype}\n"
+        f"错误详情: {msg[:300]}\n"
+        f"可重试: {'是' if retryable else '否'}\n"
+        f"修复建议: {suggestion}\n"
+        f"请依据以上信息自行纠正后继续，不要重复完全相同的调用。"
+    )
+
+
 class ToolNode:
     """工具执行节点：执行一轮模型返回的全部 tool_calls。
 
@@ -272,17 +320,29 @@ class ToolNode:
         ) -> None:
             t0 = time.monotonic()
             if tool_obj is None:
-                result_text = f"错误：工具 '{tool_name}' 未注册"
+                result_text = (
+                    f"[工具执行失败]\n工具: {tool_name}\n错误类型: not_registered\n"
+                    f"错误详情: 工具 '{tool_name}' 未注册\n可重试: 否\n"
+                    f"修复建议: 该工具不存在，请从已注册工具中选择，或用已有能力组合完成目标。"
+                )
                 logger.warning(f"[agent] 未知工具: {tool_name}")
             else:
                 try:
                     ret = await tool_obj.execute(args)
                     if isinstance(ret, dict):
                         result_text = json.dumps(ret, ensure_ascii=False)
+                        # L3：工具返回 success=false（业务失败）时，附可操作提示
+                        # 引导模型修正参数或换路径，而非看到失败就停滞。
+                        if ret.get("success") is False:
+                            result_text += (
+                                "\n\n[系统提示] 该工具返回失败（success=false）。"
+                                "若失败原因可修复（如参数错误、路径不对），请修正后重试；"
+                                "否则换一种方式完成目标，不要重复完全相同的调用。"
+                            )
                     else:
                         result_text = str(ret)
                 except Exception as exc:
-                    result_text = f"工具执行失败: {exc}"
+                    result_text = _format_tool_error(tool_name, exc)
                     logger.error(f"[agent] {tool_name} 执行异常: {exc}")
             latency_ms = int((time.monotonic() - t0) * 1000)
 
@@ -595,7 +655,13 @@ class AgentOrchestrator:
 
         turn = 0
         _auto_continue = 0  # P0.5 自动续跑次数（防"意图声明式回答"）
-        while turn < self._max_turns:
+        # L3 动态轮次上限：计划模式确认后执行阶段任务复杂（探查→执行→验证多阶段），
+        # 放宽上限避免多步骤任务被硬切；craft 保持 12 轮兜底防失控。
+        if _work_mode == WORK_MODE_PLAN and _plan_confirmed:
+            _loop_max = max(self._max_turns, 24)
+        else:
+            _loop_max = self._max_turns
+        while turn < _loop_max:
             turn += 1
 
             # ── 后台任务取消检查（P0）：置位后立即停止，不启动下一轮 LLM ──
@@ -848,19 +914,21 @@ class AgentOrchestrator:
                     "type": "tool_result",
                     "name": fn.get("name", ""),
                     "result": content if isinstance(content, str) else str(content),
-                    "is_error": content.startswith("错误") if isinstance(content, str) else False,
+                    "is_error": (
+                        content.startswith(("[工具执行失败]", "错误"))
+                        or '"success": false' in content
+                    ) if isinstance(content, str) else False,
                     "saved_files": saved_files,
                 }
 
-            # 工具结果入历史前统一截断：多轮工具调用（如数据库探查）的结果
-            # 若全量累积进 messages，会在后续轮次触发模型上下文超限而"模型调用失败"
-            # （实测 11 次 db_query、每次最多 100 行 JSON，第 12 轮必炸）。
-            # 截断只影响历史消息（模型看到的摘要）；SSE 已在上方透传完整结果，
+            # 工具结果入历史前统一摘要化（L3）：超长结果做结构化摘要
+            # （JSON 保留结构骨架 / 文本保留头尾 + 省略指引），比硬截断省 token
+            # 且防模型幻觉；SSE 已在上方透传完整结果，
             # 前端「展开查看完整结果 / 复制结果」不受影响。
             for _tr in tool_results:
                 _c = _tr.get("content")
                 if isinstance(_c, str) and len(_c) > self.cm.tool_result_max_chars:
-                    _tr["content"] = self.cm.truncate_tool_result(_c)
+                    _tr["content"] = self.cm.summarize_tool_result(_c)
             state.messages.extend(tool_results)
             state.tool_results.extend(tool_results)
 
