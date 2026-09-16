@@ -203,12 +203,18 @@ def _load_allowed_root_dirs() -> list[str]:
 
 
 async def _build_system_prompt(key: str) -> str:
-    """组装 system prompt：基础提示 + 自我认知 + 联网搜索能力 + 已启用只读数据库连接清单。"""
+    """组装 system prompt：基础提示 + 自我认知 + 工具路由 + 动态失败预警。"""
     from ..agents.self_awareness import build_self_awareness_block, build_tool_routing_block
+    from ..audit.failure_analysis import build_correction_rules
 
     prompt = SYSTEM_PROMPT_CHAT if key == "chat" else SYSTEM_PROMPT
     prompt += build_self_awareness_block()
     prompt += build_tool_routing_block()
+    try:
+        # L4 动态规则：依据近期审计失败模式生成，注入最新预警；失败不影响对话
+        prompt += await build_correction_rules()
+    except Exception:  # noqa: BLE001
+        pass
     prompt += (
         "\n\n## 智能体工作法（P0：计划-执行-验证）\n"
         "- 需要 3 步以上的任务（查资料→处理→产出文件、多轮工具调用等），"

@@ -109,6 +109,27 @@ async def replay_stats(conversation_id: str):
     }
 
 
+@router.get("/failure-analysis")
+async def failure_analysis(limit: int = Query(default=300, ge=50, le=2000)):
+    """L4 失败模式分析：各工具调用/失败/失败率 + 主要错误类型（供前端展示）。"""
+    from ..audit.failure_analysis import analyze_failures
+
+    stats = await analyze_failures(limit=limit)
+    return {
+        "total": stats["total"],
+        "tools": [
+            {
+                "tool": tool,
+                "calls": st["calls"],
+                "fails": st["fails"],
+                "rate": round(st["fails"] / st["calls"], 3) if st["calls"] else 0,
+                "topErrors": [{"kind": k, "count": c} for k, c in st["errors"].most_common(3)],
+            }
+            for tool, st in stats["ranked"]
+        ],
+    }
+
+
 @router.get("/breakers")
 async def breaker_status():
     return get_breaker().status()
