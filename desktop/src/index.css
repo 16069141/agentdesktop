@@ -440,164 +440,163 @@ body {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   新拟物（Neumorphism）风格层
-   ─ 由 useTheme 注入 data-style='neu' + neu 色板变量
+   Windows 11 Fluent 风格层
+   ─ 由 useTheme 注入 data-style='windows' + win 色板变量
    ─ 扁平风格不受影响；与深色/浅色主题、强调色正交组合
    ════════════════════════════════════════════════════════════════ */
-:root[data-style='neu'] body {
+:root[data-style='windows'] body {
   background:
-    radial-gradient(1100px 700px at 12% -8%, rgba(255, 255, 255, 0.55), transparent 55%),
-    radial-gradient(900px 650px at 108% 112%, rgba(150, 170, 205, 0.28), transparent 55%),
+    radial-gradient(1200px 800px at 15% -10%, rgba(255,255,255,0.10), transparent 60%),
+    radial-gradient(1000px 700px at 110% 115%, rgba(120,160,255,0.06), transparent 60%),
     var(--bg);
 }
-:root[data-style='neu'][data-theme='dark'] body {
+:root[data-style='windows'][data-theme='dark'] body {
   background:
-    radial-gradient(1100px 700px at 12% -8%, rgba(255, 255, 255, 0.05), transparent 55%),
-    radial-gradient(900px 650px at 108% 112%, rgba(120, 150, 220, 0.08), transparent 55%),
+    radial-gradient(1200px 800px at 15% -10%, rgba(255,255,255,0.035), transparent 60%),
+    radial-gradient(1000px 700px at 110% 115%, rgba(120,160,255,0.05), transparent 60%),
     var(--bg);
 }
 
-/* 贴边外凸面板：侧栏 / 顶栏（去掉边框，改向外侧投影） */
-:root[data-style='neu'] .neu-panel {
+/* 贴边面板：侧栏 / 顶栏（去投影，改细分隔线，贴近 Windows 11 设置/资源管理器） */
+:root[data-style='windows'] .neu-panel {
   border-color: transparent !important;
 }
-:root[data-style='neu'] .neu-panel.neu-sidebar {
-  box-shadow: var(--neu-edge-shadow);
+:root[data-style='windows'] .neu-panel.neu-sidebar {
+  border-right: var(--win-edge-line) !important;
+  box-shadow: none;
 }
-:root[data-style='neu'] .neu-panel.neu-topbar {
-  box-shadow: var(--neu-strip-shadow);
+:root[data-style='windows'] .neu-panel.neu-topbar {
+  border-bottom: var(--win-strip-line) !important;
+  box-shadow: none;
 }
 
-/* 消息流卡片化：消息行变成柔和外凸卡片 */
-:root[data-style='neu'] .msg-row {
+/* 消息流：扁平卡片（Windows 11 列表卡片：细边框 + 柔和投影） */
+:root[data-style='windows'] .msg-row {
   background: var(--bg-panel);
-  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
   padding: 14px 18px;
   margin-bottom: 10px;
-  box-shadow: var(--neu-shadow-out-sm);
+  box-shadow: var(--win-shadow-card);
 }
 
-/* 消息卡片内部的子卡片（工具步骤 / 思考 / 附件 / 引用 / 生成图片）：
-   外凸小阴影，按下时内凹 */
-:root[data-style='neu'] .msg-row .rounded-lg {
-  box-shadow: var(--neu-shadow-out-sm);
+/* 消息卡片内部子卡片（工具步骤 / 思考 / 附件 / 引用 / 生成图片）：轻微浮动 */
+:root[data-style='windows'] .msg-row .rounded-lg {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
   transition: box-shadow 0.12s ease;
 }
-:root[data-style='neu'] .msg-row .rounded-lg:active {
-  box-shadow: var(--neu-shadow-in-sm);
+:root[data-style='windows'] .msg-row .rounded-lg:active {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 
-/* 输入区：内凹输入槽（拖拽悬停时保留原强调反馈） */
-:root[data-style='neu'] .neu-inset:not(.neu-dragging) {
-  background: var(--bg) !important;
-  border-color: transparent !important;
-  box-shadow: var(--neu-shadow-in) !important;
+/* 输入区：Windows 文本框（表面底 + 聚焦强调边框） */
+:root[data-style='windows'] .neu-inset:not(.neu-dragging) {
+  background: var(--surf-input) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-/* 输入区底部工具条按钮：外凸小按钮，按下内凹 */
-:root[data-style='neu'] .neu-inset .rounded-lg {
-  box-shadow: var(--neu-shadow-out-sm);
-  transition: box-shadow 0.12s ease;
+:root[data-style='windows'] .neu-inset:not(.neu-dragging):focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
 }
-:root[data-style='neu'] .neu-inset .rounded-lg:not(:disabled):active {
-  box-shadow: var(--neu-shadow-in-sm);
+:root[data-style='windows'] .neu-inset .rounded-lg {
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+:root[data-style='windows'] .neu-inset .rounded-lg:not(:disabled):hover {
+  background: var(--bg-hover);
+}
+:root[data-style='windows'] .neu-inset .rounded-lg:not(:disabled):active {
+  background: var(--bg-elev);
 }
 
-/* 滚动条与选中在 neu 表面下保持可辨 */
-:root[data-style='neu'] ::-webkit-scrollbar-thumb {
-  background: rgba(20, 40, 70, 0.16);
+/* 滚动条在 Windows 表面下保持可辨 */
+:root[data-style='windows'] ::-webkit-scrollbar-thumb {
+  background: rgba(20,40,70,0.18);
+  border-radius: 4px;
 }
-:root[data-style='neu'][data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.13);
+:root[data-style='windows'][data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.14);
+  border-radius: 4px;
 }
 
 /* ════════════════════════════════════════════════════════════════
-   新拟物风格组件样式（Soft UI）
+   Windows 11 风格组件样式（Fluent）
    ════════════════════════════════════════════════════════════════ */
 
-/* 卡片容器 - 凸出效果 */
+/* 卡片容器：扁平卡片 */
 .neu-card {
   background: var(--bg-panel);
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  box-shadow: 
-    8px 8px 16px rgba(0, 0, 0, 0.3),
-    -8px -8px 16px rgba(255, 255, 255, 0.03);
-  transition: all 0.3s ease;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--win-shadow-card);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .neu-card:hover {
-  box-shadow: 
-    12px 12px 24px rgba(0, 0, 0, 0.4),
-    -12px -12px 24px rgba(255, 255, 255, 0.05);
-  transform: translateY(-2px);
+  box-shadow: var(--win-shadow-float);
+  transform: translateY(-1px);
 }
 
-/* 凹陷区域 - 输入框内部、标签页内容区 */
+/* 凹陷区域 - 输入框内部、标签页内容区（Windows 文本框感） */
 .neu-inset {
-  background: var(--bg);
-  border-radius: 12px;
-  box-shadow: 
-    inset 4px 4px 8px rgba(0, 0, 0, 0.3),
-    inset -4px -4px 8px rgba(255, 255, 255, 0.02);
+  background: var(--surf-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
-/* 主要按钮 - 凸出效果 */
+/* 主要按钮 - Fluent 强调色按钮 */
 .neu-btn-primary {
-  background: linear-gradient(145deg, var(--bg-elev), var(--bg-panel));
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 10px 20px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 
-    4px 4px 8px rgba(0, 0, 0, 0.25),
-    -4px -4px 8px rgba(255, 255, 255, 0.04);
-  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+  transition: all 0.15s ease;
 }
 
 .neu-btn-primary:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-ink);
-  box-shadow: 
-    6px 6px 12px rgba(0, 0, 0, 0.35),
-    -6px -6px 12px rgba(255, 255, 255, 0.06);
+  filter: brightness(1.08);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.22);
   transform: translateY(-1px);
 }
 
 .neu-btn-primary:active:not(:disabled) {
-  box-shadow: 
-    inset 3px 3px 6px rgba(0, 0, 0, 0.25),
-    inset -3px -3px 6px rgba(255, 255, 255, 0.04);
+  filter: brightness(0.94);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
   transform: translateY(0);
 }
 
 .neu-btn-primary:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-/* 次要按钮 - 平面对齐 */
+/* 次要按钮 - Fluent 次级按钮 */
 .neu-btn-secondary {
   background: var(--bg-panel);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 8px 16px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .neu-btn-secondary:hover {
-  background: var(--bg-elev);
+  background: var(--bg-hover);
   border-color: var(--border-soft);
-  transform: translateY(-1px);
 }
 
 .neu-btn-secondary:active {
-  transform: translateY(0);
+  background: var(--bg-elev);
 }
 
 /* 危险按钮 */
@@ -605,11 +604,11 @@ body {
   background: rgba(242, 100, 124, 0.12);
   color: var(--danger);
   border: 1px solid rgba(242, 100, 124, 0.25);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 8px 16px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
 .neu-btn-danger:hover {
@@ -618,27 +617,21 @@ body {
   border-color: var(--danger);
 }
 
-/* 输入框 - 凹陷效果 */
+/* 输入框 - Fluent 文本框 */
 .neu-input {
-  background: var(--bg);
+  background: var(--surf-input);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px 14px;
   color: var(--text);
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   outline: none;
-  box-shadow: 
-    inset 2px 2px 4px rgba(0, 0, 0, 0.2),
-    inset -2px -2px 4px rgba(255, 255, 255, 0.02);
 }
 
 .neu-input:focus {
   border-color: var(--accent);
-  box-shadow: 
-    0 0 0 3px var(--accent-soft),
-    inset 2px 2px 4px rgba(0, 0, 0, 0.2),
-    inset -2px -2px 4px rgba(255, 255, 255, 0.02);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .neu-input.error {
@@ -646,7 +639,7 @@ body {
 }
 
 .neu-input.error:focus {
-  box-shadow: 0 0 0 3px rgba(242, 100, 124, 0.15), inset 2px 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 0 3px rgba(242, 100, 124, 0.15);
 }
 
 .neu-input:disabled {

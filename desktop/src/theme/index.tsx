@@ -1,16 +1,16 @@
 import { useEffect } from 'react'
 import { useUiStore } from '../store/useUiStore'
-import { themeTokens, accentColors, neuTokens } from './tokens'
+import { themeTokens, accentColors, windowsTokens } from './tokens'
 
 export function useTheme() {
   const { theme, accent, uiStyle } = useUiStore()
 
   useEffect(() => {
     const root = document.documentElement
-    // 新拟物风格在基础色板上叠加 neu 色板（覆盖表面色 + 提供软阴影变量）
+    // Windows 11 风格在基础色板上叠加 win 色板（覆盖表面色 + 提供浮动阴影变量）
     const t = {
       ...themeTokens[theme],
-      ...(uiStyle === 'neu' ? neuTokens[theme] : {}),
+      ...(uiStyle === 'windows' ? windowsTokens[theme] : {}),
     }
     const a = accentColors[accent]
 

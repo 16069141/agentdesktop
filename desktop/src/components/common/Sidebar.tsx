@@ -419,12 +419,12 @@ const Sidebar: React.FC = () => {
             <button
               className="px-2 py-0.5 rounded text-xs"
               style={{
-                background: uiStyle === 'neu' ? accentColor : 'var(--bg-elev)',
-                color: uiStyle === 'neu' ? 'var(--accent-ink)' : 'var(--text-dim)',
+                background: uiStyle === 'windows' ? accentColor : 'var(--bg-elev)',
+                color: uiStyle === 'windows' ? 'var(--accent-ink)' : 'var(--text-dim)',
               }}
-              onClick={() => setUiStyle('neu')}
+              onClick={() => setUiStyle('windows')}
             >
-              🧊 新拟物
+              🪟 Windows
             </button>
           </div>
         </div>
