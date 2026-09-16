@@ -252,6 +252,18 @@ class BrowserTool:
     def __init__(self, timeout_sec: int = 15):
         self.timeout_sec = timeout_sec
 
+    def to_openai_schema(self) -> Dict[str, Any]:
+        """L4 修复：browser 此前缺 schema 暴露，从未下发给模型，
+        模型会幻觉调用或改用 shell 替代。补齐 OpenAI function 描述。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         action = arguments.get("action", "")
         url = arguments.get("url", "")
@@ -595,6 +607,19 @@ class WebSearchTool:
         },
         "required": ["query"],
     }
+
+    def to_openai_schema(self) -> Dict[str, Any]:
+        """L4 修复：web_search 此前缺 schema 暴露，从未下发给模型，
+        模型会幻觉调用（agnes 实测）或改用 shell 替代（deepseek 实测）。
+        补齐 OpenAI function 描述，模型才能看到并正确使用。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
 
     async def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         query = (arguments.get("query") or "").strip()

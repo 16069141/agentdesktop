@@ -55,7 +55,7 @@ TASKS: List[Dict] = [
     {"id": "web-search", "prompt": "联网搜索一下 2026 年大模型行业的最新动态",
      "expect_tool": "web_search", "expect_action": None, "desc": "联网搜索"},
     # browser
-    {"id": "web-browser", "prompt": "打开 https://example.com 看看页面里写了什么内容",
+    {"id": "web-browser", "prompt": "打开 https://github.com 看看首页有什么内容",
      "expect_tool": "browser", "expect_action": None, "desc": "抓取网页"},
     # db_query（配置类）
     {"id": "db", "prompt": "用数据库工具查一下当前只读连接里有哪些表",
