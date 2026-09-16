@@ -8,7 +8,8 @@ export function useTheme() {
   useEffect(() => {
     const root = document.documentElement
     const t = themeTokens[theme]
-    const a = accentColors[accent]
+    // 强调色分深/浅两套：浅色主题用深色强调色（白底对比足、不刺眼）
+    const a = accentColors[accent][theme]
 
     for (const [key, value] of Object.entries(t)) {
       root.style.setProperty(key, value)

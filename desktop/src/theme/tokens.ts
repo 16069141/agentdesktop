@@ -47,31 +47,69 @@ export const themeTokens = {
 
 export const accentColors = {
   teal: {
-    '--accent': '#3FD8BE',
-    '--accent-ink': '#0B211C',
-    '--accent-soft': 'rgba(63,216,190,0.16)',
-    '--glow-1': 'rgba(63,216,190,0.17)',
-    '--glow-2': 'rgba(110,156,240,0.20)',
+    // 深色主题：亮青（深底上醒目）
+    dark: {
+      '--accent': '#3FD8BE',
+      '--accent-ink': '#0B211C',
+      '--accent-soft': 'rgba(63,216,190,0.16)',
+      '--glow-1': 'rgba(63,216,190,0.17)',
+      '--glow-2': 'rgba(110,156,240,0.20)',
+    },
+    // 浅色主题：深青（白底对比足、不刺眼）
+    light: {
+      '--accent': '#0E9F84',
+      '--accent-ink': '#FFFFFF',
+      '--accent-soft': 'rgba(14,159,132,0.14)',
+      '--glow-1': 'rgba(14,159,132,0.12)',
+      '--glow-2': 'rgba(74,118,220,0.10)',
+    },
   },
   violet: {
-    '--accent': '#A78BFA',
-    '--accent-ink': '#221A3A',
-    '--accent-soft': 'rgba(167,139,250,0.18)',
-    '--glow-1': 'rgba(167,139,250,0.20)',
-    '--glow-2': 'rgba(124,156,245,0.19)',
+    dark: {
+      '--accent': '#A78BFA',
+      '--accent-ink': '#221A3A',
+      '--accent-soft': 'rgba(167,139,250,0.18)',
+      '--glow-1': 'rgba(167,139,250,0.20)',
+      '--glow-2': 'rgba(124,156,245,0.19)',
+    },
+    light: {
+      '--accent': '#6C4FD8',
+      '--accent-ink': '#FFFFFF',
+      '--accent-soft': 'rgba(108,79,216,0.14)',
+      '--glow-1': 'rgba(108,79,216,0.12)',
+      '--glow-2': 'rgba(124,156,245,0.10)',
+    },
   },
   amber: {
-    '--accent': '#F2B35E',
-    '--accent-ink': '#2E2008',
-    '--accent-soft': 'rgba(242,179,94,0.18)',
-    '--glow-1': 'rgba(242,179,94,0.19)',
-    '--glow-2': 'rgba(240,130,120,0.15)',
+    dark: {
+      '--accent': '#F2B35E',
+      '--accent-ink': '#2E2008',
+      '--accent-soft': 'rgba(242,179,94,0.18)',
+      '--glow-1': 'rgba(242,179,94,0.19)',
+      '--glow-2': 'rgba(240,130,120,0.15)',
+    },
+    light: {
+      '--accent': '#C07D16',
+      '--accent-ink': '#FFFFFF',
+      '--accent-soft': 'rgba(192,125,22,0.16)',
+      '--glow-1': 'rgba(192,125,22,0.13)',
+      '--glow-2': 'rgba(240,130,120,0.10)',
+    },
   },
   rose: {
-    '--accent': '#F07C9C',
-    '--accent-ink': '#2E1320',
-    '--accent-soft': 'rgba(240,124,156,0.18)',
-    '--glow-1': 'rgba(240,124,156,0.20)',
-    '--glow-2': 'rgba(167,139,250,0.16)',
+    dark: {
+      '--accent': '#F07C9C',
+      '--accent-ink': '#2E1320',
+      '--accent-soft': 'rgba(240,124,156,0.18)',
+      '--glow-1': 'rgba(240,124,156,0.20)',
+      '--glow-2': 'rgba(167,139,250,0.16)',
+    },
+    light: {
+      '--accent': '#D14E76',
+      '--accent-ink': '#FFFFFF',
+      '--accent-soft': 'rgba(209,78,118,0.14)',
+      '--glow-1': 'rgba(209,78,118,0.12)',
+      '--glow-2': 'rgba(167,139,250,0.10)',
+    },
   },
 }
