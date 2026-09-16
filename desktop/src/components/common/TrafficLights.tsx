@@ -1,69 +1,90 @@
 import React, { useState } from 'react'
 
 /**
- * macOS 风格红绿灯窗口控制按钮。
- * 红=关闭，黄=最小化，绿=最大化/还原。
- * hover 时显示对应图标，参照 macOS 原生样式。
+ * Windows 11 风格窗口控制按钮（右上角）。
+ * − 最小化 / □ 最大化还原 / × 关闭。
+ * 浅色/深色主题自适应（图标取 --text）；关闭键 hover 红色背景（Windows 惯例）。
  */
 const TrafficLights: React.FC = () => {
-  const [hovered, setHovered] = useState(false)
+  const [hovered, setHovered] = useState<'close' | 'min' | 'max' | null>(null)
 
   const btnBase: React.CSSProperties = {
-    width: '12px',
-    height: '12px',
-    borderRadius: '50%',
+    width: 44,
+    height: '100%',
+    minHeight: 28,
     border: 'none',
+    background: 'transparent',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 0,
-    transition: 'filter 0.15s',
+    borderRadius: 4,
+    color: 'var(--text-dim)',
+    transition: 'background 0.12s ease, color 0.12s ease',
     WebkitAppRegion: 'no-drag',
   } as React.CSSProperties
 
-  const iconStyle: React.CSSProperties = {
-    fontSize: '8px',
-    lineHeight: 1,
-    color: 'rgba(0,0,0,0.5)',
-    fontWeight: 700,
-    userSelect: 'none',
+  const icon = (d: React.ReactNode) => (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+    >
+      {d}
+    </svg>
+  )
+
+  const stateStyle = (kind: 'close' | 'min' | 'max'): React.CSSProperties => {
+    if (hovered !== kind) return {}
+    if (kind === 'close') return { background: '#C42B1C', color: '#fff' }
+    return { background: 'var(--bg-hover)', color: 'var(--text)' }
   }
+
+  const clear = () => setHovered(null)
 
   return (
     <div
-      className="flex items-center gap-2 mr-3"
-      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="flex items-stretch"
+      style={{
+        marginLeft: 'auto',
+        alignSelf: 'stretch',
+        WebkitAppRegion: 'no-drag',
+      } as React.CSSProperties}
     >
-      {/* 关闭 */}
+      {/* 最小化 − */}
       <button
-        style={{ ...btnBase, background: '#FF5F57' }}
-        onClick={() => (window as any).electronAPI?.closeWindow()}
-        title="关闭"
-      >
-        {hovered && <span style={iconStyle}>×</span>}
-      </button>
-      {/* 最小化 */}
-      <button
-        style={{ ...btnBase, background: '#FEBC2E' }}
+        style={{ ...btnBase, ...stateStyle('min') }}
         onClick={() => (window as any).electronAPI?.minimizeWindow()}
         title="最小化"
+        onMouseEnter={() => setHovered('min')}
+        onMouseLeave={clear}
       >
-        {hovered && <span style={{ ...iconStyle, fontSize: '10px', marginTop: '-2px' }}>−</span>}
+        {icon(<path d="M2 5h6" />)}
       </button>
-      {/* 最大化/还原 */}
+      {/* 最大化/还原 □ */}
       <button
-        style={{ ...btnBase, background: '#28C840' }}
+        style={{ ...btnBase, ...stateStyle('max') }}
         onClick={() => (window as any).electronAPI?.maximizeWindow()}
         title="最大化/还原"
+        onMouseEnter={() => setHovered('max')}
+        onMouseLeave={clear}
       >
-        {hovered && (
-          <svg width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth="1.2">
-            <path d="M2 2h6v6H2z M2 8L8 2" />
-          </svg>
-        )}
+        {icon(<rect x="1.6" y="1.6" width="6.8" height="6.8" />)}
+      </button>
+      {/* 关闭 × */}
+      <button
+        style={{ ...btnBase, ...stateStyle('close') }}
+        onClick={() => (window as any).electronAPI?.closeWindow()}
+        title="关闭"
+        onMouseEnter={() => setHovered('close')}
+        onMouseLeave={clear}
+      >
+        {icon(<path d="M2.2 2.2l5.6 5.6M7.8 2.2l-5.6 5.6" />)}
       </button>
     </div>
   )

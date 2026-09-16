@@ -54,7 +54,6 @@ const TopBar: React.FC = () => {
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
-      <TrafficLights />
       {TABS.map((tab) => {
         const active = activeTab === tab.id
         return (
@@ -84,6 +83,8 @@ const TopBar: React.FC = () => {
           </button>
         )
       })}
+      {/* 窗口控制按钮（Windows 风格，右上角） */}
+      <TrafficLights />
     </div>
   )
 }
