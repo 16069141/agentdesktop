@@ -172,6 +172,32 @@ async def root():
     return {"service": "private-ai-agent", "version": "0.1.0"}
 
 
+def _setup_file_logging() -> None:
+    """把后端日志同时写入数据目录 agent.log。
+
+    Windows 打包态 Electron 无控制台（stdout 被丢弃），错误现场只能靠
+    落盘日志排查；开发态同样受益。日志位于 {数据目录}/agent.log。
+    """
+    import logging
+
+    from .storage.db import DATA_DIR
+
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        handler = logging.FileHandler(
+            os.path.join(DATA_DIR, "agent.log"), encoding="utf-8"
+        )
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        root = logging.getLogger()
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+        logging.getLogger("uvicorn.error").propagate = True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[agent] 日志文件初始化失败: {exc}", flush=True)
+
+
 def main() -> None:
     import argparse
 
@@ -179,6 +205,8 @@ def main() -> None:
     parser.add_argument("--host", default=AGENT_HOST, help="监听地址（仅允许回环）")
     parser.add_argument("--port", type=int, default=AGENT_PORT, help="监听端口")
     args = parser.parse_args()
+
+    _setup_file_logging()  # 日志落盘（Windows 无控制台时排障必需）
 
     # 安全兜底：即便配置被改，也不允许监听到非回环地址
     host = args.host

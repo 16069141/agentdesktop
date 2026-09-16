@@ -97,6 +97,10 @@ export const api = {
     update: (id: string, data: Record<string, unknown>) =>
       request<any>('PUT', `/api/llm-servers/${encodeURIComponent(id)}`, { body: data }),
     remove: (id: string) => request<any>('DELETE', `/api/llm-servers/${encodeURIComponent(id)}`),
+    // 组件常用名别名：delete / healthCheck
+    delete: (id: string) => request<any>('DELETE', `/api/llm-servers/${encodeURIComponent(id)}`),
+    healthCheck: (id: string) =>
+      request<any>('POST', `/api/llm-servers/${encodeURIComponent(id)}/test`),
     test: (id: string) => request<any>('POST', `/api/llm-servers/${encodeURIComponent(id)}/test`),
     syncModels: (id: string) =>
       request<any>('POST', `/api/llm-servers/${encodeURIComponent(id)}/sync-models`),

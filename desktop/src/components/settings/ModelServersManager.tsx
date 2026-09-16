@@ -27,21 +27,15 @@ const EMPTY_FORM = {
   allowed_models: '',
 }
 
-/** 把逗号分隔的模型名称字符串解析为数组（去空、去重）。 */
-const parseAllowed = (str: string): string[] => {
-  const parts = str.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
-  return Array.from(new Set(parts))
-}
-
-/** 模型服务器连接管理（局域网/互联网大模型服务器：Ollama、OpenAI 兼容网关等） */
 const ModelServersManager: React.FC = () => {
   const [servers, setServers] = useState<LlmServer[]>([])
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok'; text: string } | null>(null)
-  const [showApiKey, setShowApiKey] = useState(false)
+  const [showApiKey] = useState(false)  // 仅密码框显示模式（无切换入口，保持密码）
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -52,7 +46,6 @@ const ModelServersManager: React.FC = () => {
     }
   }, [])
 
-  /** 后台模型配置变化后联动：强制刷新模型列表，全局下拉菜单自动增删 */
   const refreshGlobalModels = useCallback(async () => {
     try {
       const res = await api.models.refresh()
@@ -76,305 +69,223 @@ const ModelServersManager: React.FC = () => {
   const set = (k: keyof typeof EMPTY_FORM, v: string | number | boolean) =>
     setForm((prev) => ({ ...prev, [k]: v }))
 
-  const submit = async () => {
+  const subm = async (doUpdate: boolean) => {
     setMsg(null)
-    if (!form.id.trim() || !form.name.trim() || !form.base_url.trim()) {
-      setMsg({ kind: 'err', text: '请填写 ID、名称、Base URL' })
-      return
-    }
+    setFormError(null)
+    if (!form.name.trim()) { setFormError('显示名称不能为空'); return }
+    if (!form.base_url.trim()) { setFormError('Base URL 不能为空'); return }
     try {
-      const allowed = parseAllowed(form.allowed_models)
-      if (editingId) {
-        await api.llmServers.update(editingId, {
-          name: form.name,
-          base_url: form.base_url,
-          protocol: form.protocol,
-          api_key: form.api_key || undefined,
-          timeout_sec: Number(form.timeout_sec) || 60,
-          enabled: form.enabled,
-          allowed_models: allowed,
-        })
-        setMsg({ kind: 'ok', text: '模型服务器已更新' })
+      setBusyId('form')
+      if (doUpdate && editingId) {
+        await api.llmServers.update(editingId, form)
+        setMsg({ kind: 'ok', text: '服务器已更新' })
       } else {
-        await api.llmServers.create({
-          id: form.id,
-          name: form.name,
-          base_url: form.base_url,
-          protocol: form.protocol,
-          api_key: form.api_key,
-          timeout_sec: Number(form.timeout_sec) || 60,
-          enabled: form.enabled,
-          allowed_models: allowed,
-        })
-        setMsg({ kind: 'ok', text: '模型服务器已新增' })
+        await api.llmServers.create(form)
+        setMsg({ kind: 'ok', text: '服务器已添加' })
       }
-      setForm({ ...EMPTY_FORM })
-      setEditingId(null)
-      setShowApiKey(false)
-      await load()
-      await refreshGlobalModels()
+      reset()
+      await Promise.all([load(), refreshGlobalModels()])
     } catch (e) {
-      setMsg({ kind: 'err', text: `${editingId ? '更新' : '新增'}失败：${e instanceof Error ? e.message : String(e)}` })
-    }
-  }
-
-  const remove = async (id: string) => {
-    if (!window.confirm(`确认删除模型服务器「${id}」？`)) return
-    setMsg(null)
-    try {
-      await api.llmServers.remove(id)
-      await load()
-      await refreshGlobalModels()
-    } catch (e) {
-      setMsg({ kind: 'err', text: `删除失败：${e instanceof Error ? e.message : String(e)}` })
-    }
-  }
-
-  const test = async (id: string) => {
-    setBusyId(id)
-    setMsg(null)
-    try {
-      const r = await api.llmServers.test(id)
-      setMsg(r.ok
-        ? { kind: 'ok', text: `连接正常：${r.model_count ?? 0} 个模型，延迟 ${r.latency_ms ?? '-'}ms` }
-        : { kind: 'err', text: `连接失败：${r.error || '未知错误'}` })
-    } catch (e) {
-      setMsg({ kind: 'err', text: `测试失败：${e instanceof Error ? e.message : String(e)}` })
+      setFormError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusyId(null)
-      await load()
     }
   }
 
-  const syncModels = async (id: string) => {
-    setBusyId(id)
-    setMsg(null)
-    try {
-      const r = await api.llmServers.syncModels(id)
-      setMsg(r.ok
-        ? { kind: 'ok', text: `模型同步完成：${r.count ?? 0} 个模型（${(r.models || []).slice(0, 6).join(', ')}${(r.models || []).length > 6 ? '…' : ''}）` }
-        : { kind: 'err', text: `同步失败：${r.detail || '未知错误'}` })
-    } catch (e) {
-      setMsg({ kind: 'err', text: `同步失败：${e instanceof Error ? e.message : String(e)}` })
-    } finally {
-      setBusyId(null)
-      await load()
-      await refreshGlobalModels()
-    }
+  const reset = () => {
+    setForm({ ...EMPTY_FORM })
+    setEditingId(null)
+    setFormError(null)
   }
 
-  const edit = async (s: LlmServer) => {
+  const edit = (s: LlmServer) => {
+    setForm({ id: s.id, name: s.name, base_url: s.base_url, protocol: s.protocol, api_key: '', timeout_sec: s.timeout_sec, enabled: s.enabled, allowed_models: (s.allowed_models ?? []).join(',') })
     setEditingId(s.id)
-    setShowApiKey(false)
-    setForm({
-      id: s.id,
-      name: s.name,
-      base_url: s.base_url,
-      protocol: s.protocol,
-      api_key: '',
-      timeout_sec: s.timeout_sec,
-      enabled: s.enabled,
-      allowed_models: (s.allowed_models || []).join(', '),
-    })
-    // 编辑时拉取真实 API Key 回填
-    if (s.has_api_key) {
-      try {
-        const r = await api.llmServers.getApiKey(s.id)
-        if (r?.api_key) {
-          setForm((prev) => ({ ...prev, api_key: r.api_key }))
-        }
-      } catch {
-        // 拉取失败不阻塞编辑，用户可手动重填
-      }
-    }
+    setMsg(null)
+    setFormError(null)
+  }
+
+  const toggle = async (s: LlmServer) => {
+    try { await api.llmServers.update(s.id, { ...s, enabled: !s.enabled }) ; await load() }
+    catch { /* ignore */ }
+  }
+
+  const remove = async (s: LlmServer) => {
+    try { await api.llmServers.delete(s.id) ; await load() ; await refreshGlobalModels() }
+    catch { /* ignore */ }
+  }
+
+  const probe = async (s: LlmServer) => {
+    setBusyId(s.id);
+    try {
+      const r = await api.llmServers.healthCheck(s.id);
+      const models = (r as any)?.models ?? [];
+      setServers((list) => list.map((x) => x.id === s.id ? { ...x, last_health_at: Date.now() / 1000, last_health_ok: !!r, models_cache: Array.isArray(models) ? models : [] } : x));
+      await refreshGlobalModels();
+    } catch {
+      setServers((list) => list.map((x) => x.id === s.id ? { ...x, last_health_ok: false, last_health_at: Date.now() / 1000 } : x));
+    } finally { setBusyId(null); }
   }
 
   const copyToClipboard = async (text: string, field: string) => {
+    if (!text) return
     try {
       await navigator.clipboard.writeText(text)
       setCopiedField(field)
-      setTimeout(() => setCopiedField(null), 1500)
-    } catch {
-      setMsg({ kind: 'err', text: '复制失败，请手动选择复制' })
-    }
+      setTimeout(() => setCopiedField(null), 2000)
+    } catch { /* ignore */ }
   }
 
-  return (
-    <div className="p-4 rounded-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-      <div className="font-medium mb-1">模型服务器连接</div>
-      <div className="text-xs mb-3" style={{ color: 'var(--text-faint)' }}>
-        局域网 / 互联网的大模型服务器（Ollama、OpenAI 兼容网关等）。本客户端不再内置本地模型，对话模型全部来自以下连接。
-      </div>
+  const formatTime = (ts?: number | null) => ts ? new Date(ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 
+  return (
+    <div className="space-y-6 max-w-3xl">
       {msg && (
-        <div className="mb-3 p-2 rounded-lg text-sm" style={{
-          background: msg.kind === 'err' ? 'var(--error-soft)' : 'var(--ok-soft)',
-          color: msg.kind === 'err' ? 'var(--error)' : 'var(--ok)',
-        }}>
+        <div className={`rounded-xl p-4 ${msg.kind === 'err' ? 'neu-inset text-red-400' : 'neu-inset text-green-400'}`} style={{ color: msg.kind === 'err' ? 'var(--danger)' : 'var(--ok)' }}>
           {msg.text}
         </div>
       )}
 
-      {/* 已配置列表 */}
-      {servers.length > 0 && (
-        <div className="space-y-2 mb-4">
-          {servers.map((s) => (
-            <div key={s.id} className="flex items-center justify-between p-3 rounded-lg"
-              style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)' }}>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{s.name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                    background: s.enabled ? 'var(--ok-soft)' : 'var(--error-soft)',
-                    color: s.enabled ? 'var(--ok)' : 'var(--error)',
-                  }}>{s.enabled ? '启用' : '停用'}</span>
-                  {s.last_health_ok !== null && s.last_health_ok !== undefined && (
-                    <span className="text-[10px]" style={{ color: s.last_health_ok ? 'var(--ok)' : 'var(--error)' }}>
-                      {s.last_health_ok ? '● 健康' : '○ 异常'}
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-faint)' }}>
-                  {s.protocol} · {s.base_url} · {s.has_api_key ? '已配密钥' : '无鉴权'}
-                </div>
-                {s.models_cache && s.models_cache.length > 0 && (
-                  <div className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-faint)' }}>
-                    模型：{s.models_cache.join(', ')}
-                  </div>
-                )}
-              </div>
-              <div className="flex gap-1.5 ml-3 shrink-0">
-                <button onClick={() => test(s.id)} disabled={busyId === s.id}
-                  className="px-2.5 py-1 text-xs rounded-lg"
-                  style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-                  {busyId === s.id ? '测试中…' : '测试'}
-                </button>
-                <button onClick={() => syncModels(s.id)} disabled={busyId === s.id}
-                  className="px-2.5 py-1 text-xs rounded-lg"
-                  style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-                  同步模型
-                </button>
-                <button onClick={() => edit(s)}
-                  className="px-2.5 py-1 text-xs rounded-lg"
-                  style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-                  编辑
-                </button>
-                <button onClick={() => remove(s.id)}
-                  className="px-2.5 py-1 text-xs rounded-lg"
-                  style={{ background: 'var(--error-soft)', color: 'var(--error)', border: '1px solid var(--error-soft)' }}>
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">模型服务器</h2>
+        <button className="neu-btn-primary" onClick={() => subm(false)} disabled={!!busyId}>
+          + 添加服务器
+        </button>
+      </div>
 
-      {/* 新增/编辑表单 */}
-      <div className="space-y-3 p-3 rounded-lg" style={{ background: 'var(--bg-elev)', border: '1px dashed var(--border-soft)' }}>
-        <div className="text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
-          {editingId ? `编辑连接：${editingId}` : '新增模型服务器连接'}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm" style={{ color: 'var(--text-dim)' }}>ID（唯一标识）</label>
-            <input type="text" value={form.id} disabled={!!editingId} onChange={(e) => set('id', e.target.value)}
-              placeholder="ollama-office"
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
-          </div>
-          <div>
-            <label className="text-sm" style={{ color: 'var(--text-dim)' }}>显示名称</label>
-            <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)}
-              placeholder="办公室 Ollama 服务器"
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
-          </div>
-        </div>
-        <div>
-          <label className="text-sm" style={{ color: 'var(--text-dim)' }}>Base URL</label>
-          <div style={{ position: 'relative' }}>
-            <input type="text" value={form.base_url} onChange={(e) => set('base_url', e.target.value)}
-              placeholder="http://192.168.1.100:11434 或 http://api.example.com"
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)', paddingRight: '70px' }} />
-            <button type="button" onClick={() => copyToClipboard(form.base_url, 'base_url')}
-              className="absolute top-1/2 -translate-y-1/2 right-2 px-2 py-1 text-xs rounded"
-              style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)', color: copiedField === 'base_url' ? 'var(--ok)' : 'var(--text-dim)' }}>
-              {copiedField === 'base_url' ? '已复制' : '复制'}
-            </button>
-          </div>
-          <div className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
-            局域网填内网地址（如 http://192.168.1.100:11434），互联网填公网地址；无需写 /v1，系统自动补齐
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm" style={{ color: 'var(--text-dim)' }}>协议</label>
-            <select value={form.protocol} onChange={(e) => set('protocol', e.target.value)}
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }}>
-              <option value="ollama">Ollama（原生）</option>
-              <option value="openai">OpenAI 兼容</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm" style={{ color: 'var(--text-dim)' }}>超时（秒）</label>
-            <input type="number" value={form.timeout_sec} onChange={(e) => set('timeout_sec', Number(e.target.value))}
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
-          </div>
-        </div>
-        <div>
-          <label className="text-sm" style={{ color: 'var(--text-dim)' }}>API Key（可选）</label>
-          <div style={{ position: 'relative' }}>
-            <input type={showApiKey ? 'text' : 'password'} value={form.api_key} onChange={(e) => set('api_key', e.target.value)}
-              placeholder="sk-...（无鉴权留空；编辑时留空表示不修改）"
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)', paddingRight: '90px', fontFamily: 'monospace' }} />
-            <div style={{ position: 'absolute', top: '50%', right: '6px', transform: 'translateY(calc(-50% + 4px))', display: 'flex', gap: '4px' }}>
-              {form.api_key && (
-                <button type="button" onClick={() => copyToClipboard(form.api_key, 'api_key')}
-                  className="px-2 py-1 text-xs rounded"
-                  style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)', color: copiedField === 'api_key' ? 'var(--ok)' : 'var(--text-dim)' }}>
-                  {copiedField === 'api_key' ? '已复制' : '复制'}
-                </button>
+      {/* 表单弹窗 */}
+      {(editingId || form.name || form.base_url) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 neu-modal-overlay">
+          <div className="neu-modal w-full max-w-lg p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+                {editingId ? '编辑服务器' : '添加服务器'}
+              </h3>
+              <button onClick={reset} className="text-2xl leading-none opacity-50 hover:opacity-100" style={{ color: 'var(--text-dim)' }}>×</button>
+            </div>
+
+            <div className="neu-inset p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="neu-label">协议</label>
+                  <select value={form.protocol} onChange={(e) => set('protocol', e.target.value)} className="neu-input w-full">
+                    <option value="ollama">Ollama（原生）</option>
+                    <option value="openai">OpenAI 兼容网关</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="neu-label">显示名称</label>
+                  <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="办公室 Ollama 服务器" className="neu-input w-full" />
+                </div>
+              </div>
+
+              <div>
+                <label className="neu-label">Base URL</label>
+                <div style={{ position: 'relative' }}>
+                  <input type="text" value={form.base_url} onChange={(e) => set('base_url', e.target.value)} placeholder="http://192.168.1.100:11434" className="neu-input w-full" style={{ paddingRight: '70px' }} />
+                  <button type="button" onClick={() => copyToClipboard(form.base_url, 'base_url')} className="absolute top-1/2 -translate-y-1/2 right-2 px-2 py-1 text-xs rounded" style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)', color: copiedField === 'base_url' ? 'var(--ok)' : 'var(--text-dim)' }}>
+                    {copiedField === 'base_url' ? '已复制' : '复制'}
+                  </button>
+                </div>
+                <div className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
+                  局域网填内网地址；互联网填公网地址；无需写 /v1，系统自动补齐
+                </div>
+              </div>
+
+              <div>
+                <label className="neu-label">API Key（如有）</label>
+                <div style={{ position: 'relative' }}>
+                  <input type={showApiKey ? 'text' : 'password'} value={form.api_key} onChange={(e) => set('api_key', e.target.value)} placeholder="留空则不发送" className="neu-input w-full pr-16" />
+                  <button type="button" onClick={() => copyToClipboard(form.api_key, 'api_key')} className="absolute top-1/2 -translate-y-1/2 right-2 px-2 py-1 text-xs rounded" style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)', color: copiedField === 'api_key' ? 'var(--ok)' : 'var(--text-dim)' }}>
+                    {copiedField === 'api_key' ? '已复制' : '复制'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="neu-label">超时（秒）</label>
+                  <input type="number" value={form.timeout_sec} onChange={(e) => set('timeout_sec', Number(e.target.value))} className="neu-input w-full" min={10} max={300} />
+                </div>
+                <div>
+                  <label className="neu-label">允许模型（逗号分隔）</label>
+                  <input type="text" value={form.allowed_models} onChange={(e) => set('allowed_models', e.target.value)} placeholder="留空 = 全部可见" className="neu-input w-full" />
+                </div>
+              </div>
+
+              {formError && (
+                <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(242, 100, 124, 0.12)', color: 'var(--danger)', border: '1px solid rgba(242, 100, 124, 0.25)' }}>
+                  {formError}
+                </div>
               )}
-              <button type="button" onClick={() => setShowApiKey(!showApiKey)}
-                className="px-2 py-1 text-xs rounded"
-                style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)', color: 'var(--text-dim)' }}>
-                {showApiKey ? '隐藏' : '查看'}
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <button className="neu-btn-secondary" onClick={reset} disabled={!!busyId}>取消</button>
+              <button className="neu-btn-primary" onClick={() => subm(!!editingId)} disabled={!!busyId}>
+                {busyId === 'form' ? '保存中...' : editingId ? '保存更改' : '确认添加'}
               </button>
             </div>
           </div>
         </div>
-        <div>
-          <label className="text-sm" style={{ color: 'var(--text-dim)' }}>模型名称（白名单）</label>
-          <input type="text" value={form.allowed_models} onChange={(e) => set('allowed_models', e.target.value)}
-            placeholder="deepseek-v4-flash, deepseek-v4-pro（留空同步全部模型）"
-            className="w-full mt-1 p-2 rounded-lg text-sm"
-            style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)', fontFamily: 'monospace' }} />
-          <div className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
-            填模型 ID（小写，如 deepseek-v4-flash），不是服务器名称；多个用英文逗号分隔，留空表示同步全部。点下方「同步模型」可查看服务器真实模型 ID
+      )}
+
+      {/* 服务器列表 */}
+      <div className="space-y-3">
+        {servers.length === 0 ? (
+          <div className="neu-card p-8 text-center" style={{ color: 'var(--text-faint)' }}>
+            暂无模型服务器，点击「+ 添加服务器」开始配置
           </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-dim)' }}>
-            <input type="checkbox" checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />
-            启用
-          </label>
-          <div className="flex-1" />
-          <button onClick={() => { setForm({ ...EMPTY_FORM }); setEditingId(null); setShowApiKey(false) }}
-            className="px-3 py-1.5 text-xs rounded-lg"
-            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-soft)' }}>
-            取消
-          </button>
-          <button onClick={submit}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium"
-            style={{ background: 'var(--primary)', color: 'white', border: '1px solid var(--primary)' }}>
-            {editingId ? '保存修改' : '+ 新增连接'}
-          </button>
-        </div>
+        ) : (
+          servers.map((s) => (
+            <div key={s.id} className="server-item">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-base" style={{ color: 'var(--text)' }}>{s.name}</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs" style={{ background: 'var(--bg-elev)', color: 'var(--text-dim)', border: '1px solid var(--border-soft)' }}>
+                      {s.protocol.toUpperCase()}
+                    </span>
+                    <span className={`neu-status ${s.enabled ? 'neu-status-ok' : 'neu-status-warn'}`}>
+                      {s.enabled ? '已启用' : '已停用'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-faint)' }}>
+                    <code className="px-2 py-0.5 rounded" style={{ background: 'var(--bg)', fontSize: '12px' }}>{s.base_url}</code>
+                    {s.has_api_key && <span style={{ color: 'var(--ok)' }}>🔑</span>}
+                    {s.last_health_at && <span>上次检查 {formatTime(s.last_health_at)}</span>}
+                    {s.last_health_ok === false && <span style={{ color: 'var(--danger)' }}>• 连接失败</span>}
+                    {s.last_health_ok === true && <span style={{ color: 'var(--ok)' }}>• 连接正常</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button className="neu-btn-secondary" onClick={() => toggle(s)} title={s.enabled ? '停用' : '启用'}>
+                    {s.enabled ? '停用' : '启用'}
+                  </button>
+                  <button className="neu-btn-secondary" onClick={() => edit(s)} disabled={!!busyId}>
+                    编辑
+                  </button>
+                  <button className="neu-btn-secondary" onClick={() => probe(s)} disabled={!!busyId || busyId === s.id} style={{ minWidth: '60px' }}>
+                    {busyId === s.id ? '检测中' : '检测'}
+                  </button>
+                  <button className="neu-btn-danger" onClick={() => remove(s)} disabled={!!busyId}>
+                    删除
+                  </button>
+                </div>
+              </div>
+              {Array.isArray(s.allowed_models) && s.allowed_models.length > 0 && (
+                <div className="mt-2 text-xs" style={{ color: 'var(--text-faint)' }}>
+                  白名单模型：{s.allowed_models.join(', ')}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="neu-divider" />
+      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
+        提示：添加/修改服务器后，请手动点击「检测」验证连接，或等待系统定时检测更新状态。
       </div>
     </div>
   )

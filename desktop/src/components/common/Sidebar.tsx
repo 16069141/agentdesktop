@@ -28,6 +28,30 @@ const Sidebar: React.FC = () => {
 
   const [busy, setBusy] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // 操作失败提示（新建/删除会话等）：给用户可见反馈，不再静默失败
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast(msg)
+    toastTimer.current = setTimeout(() => setToast(null), 5000)
+  }
+
+  /** 把 API 异常转成用户可行动的提示 */
+  const friendlyError = (e: unknown, action: string): string => {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/Failed to fetch|NetworkError|fetch/i.test(msg) || /网络错误/.test(msg)) {
+      return `${action}失败：无法连接本地服务（127.0.0.1:8765），请确认后端已启动后重试`
+    }
+    if (/401|Unauthorized/.test(msg)) {
+      return `${action}失败：本地服务鉴权失败，请重启客户端后重试`
+    }
+    if (/422/.test(msg)) {
+      return `${action}失败：请求参数不被后端接受，请升级到最新版本`
+    }
+    return `${action}失败：${msg.slice(0, 120)}`
+  }
   const [editingTitle, setEditingTitle] = useState('')
   const accentColor = ACCENTS[accent] || ACCENTS.teal
 
@@ -122,6 +146,7 @@ const Sidebar: React.FC = () => {
       // 新对话缓存为空，ChatView 会显示空并等待用户输入
     } catch (e) {
       console.error('[Sidebar] 新建会话失败:', e)
+      showToast(friendlyError(e, '新建对话'))
     } finally {
       setBusy(false)
     }
@@ -211,7 +236,7 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className="flex flex-col h-full select-none neu-panel neu-sidebar"
+      className="flex flex-col h-full select-none neu-panel neu-sidebar relative"
       style={{
         width: '264px',
         flex: '0 0 264px',
@@ -221,6 +246,20 @@ const Sidebar: React.FC = () => {
         borderRight: '1px solid var(--border-soft)',
       }}
     >
+      {/* 操作失败提示（浮动） */}
+      {toast && (
+        <div
+          className="absolute left-2 right-2 top-2 z-50 px-3 py-2 rounded-lg text-xs leading-relaxed"
+          style={{
+            background: 'rgba(240,124,156,0.14)',
+            color: 'var(--danger, #F07C9C)',
+            border: '1px solid rgba(240,124,156,0.35)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          {toast}
+        </div>
+      )}
       {/* 应用标识 */}
       <div className="p-4 border-b" style={{ borderColor: 'var(--border-soft)' }}>
         <div className="flex items-center gap-2">
