@@ -710,6 +710,14 @@ class AgentOrchestrator:
 
             # tools=None 会让部分 SDK/后端报参数错误，只在有工具时显式传入
             chat_kwargs: dict[str, Any] = {"stream": True}
+            # L2 temperature 校准：工具执行/规划轮用低温保证调用稳定、参数不漂移；
+            # 纯问答（ask）用中温让回答更自然；规划阶段略升一点保留方案多样性。
+            if _work_mode == WORK_MODE_ASK:
+                chat_kwargs["temperature"] = 0.7
+            elif _work_mode == WORK_MODE_PLAN and not _plan_confirmed:
+                chat_kwargs["temperature"] = 0.4
+            else:
+                chat_kwargs["temperature"] = 0.3
             if tool_schemas and tools_enabled:
                 chat_kwargs["tools"] = tool_schemas
 

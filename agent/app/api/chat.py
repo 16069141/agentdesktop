@@ -204,10 +204,11 @@ def _load_allowed_root_dirs() -> list[str]:
 
 async def _build_system_prompt(key: str) -> str:
     """组装 system prompt：基础提示 + 自我认知 + 联网搜索能力 + 已启用只读数据库连接清单。"""
-    from ..agents.self_awareness import build_self_awareness_block
+    from ..agents.self_awareness import build_self_awareness_block, build_tool_routing_block
 
     prompt = SYSTEM_PROMPT_CHAT if key == "chat" else SYSTEM_PROMPT
     prompt += build_self_awareness_block()
+    prompt += build_tool_routing_block()
     prompt += (
         "\n\n## 智能体工作法（P0：计划-执行-验证）\n"
         "- 需要 3 步以上的任务（查资料→处理→产出文件、多轮工具调用等），"
