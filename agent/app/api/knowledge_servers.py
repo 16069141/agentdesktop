@@ -194,6 +194,19 @@ async def search_server(server_id: str, body: dict):
     return {"server_id": server_id, "query": query, "results": results}
 
 
+@router.get("/{server_id:path}/api-key")
+async def get_api_key(server_id: str):
+    """返回真实 API Key（编辑时回填显示用；仅本地回环 + Token 鉴权可访问）。"""
+    server = await repo.get(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="连接不存在")
+    return {
+        "server_id": server_id,
+        "api_key": await _resolve_api_key(server),
+        "has_api_key": bool(server.get("api_key_ref")),
+    }
+
+
 @router.get("/{server_id:path}/spaces")
 async def list_spaces(server_id: str):
     """列出可用知识库/空间（Dify 数据集、Confluence 空间等）。"""

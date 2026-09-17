@@ -33,7 +33,7 @@ const ModelServersManager: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok'; text: string } | null>(null)
-  const [showApiKey] = useState(false)  // 仅密码框显示模式（无切换入口，保持密码）
+  const [showApiKey, setShowApiKey] = useState(true)  // 编辑时默认明文显示已保存的 key，可切换隐藏
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -98,11 +98,19 @@ const ModelServersManager: React.FC = () => {
     setFormError(null)
   }
 
-  const edit = (s: LlmServer) => {
+  const edit = async (s: LlmServer) => {
     setForm({ id: s.id, name: s.name, base_url: s.base_url, protocol: s.protocol, api_key: '', timeout_sec: s.timeout_sec, enabled: s.enabled, allowed_models: (s.allowed_models ?? []).join(',') })
     setEditingId(s.id)
     setMsg(null)
     setFormError(null)
+    // 编辑时回填已保存的 API Key（后端明文接口，仅本地回环可访问）
+    try {
+      const r = await api.llmServers.getApiKey(s.id)
+      if (r && r.api_key) {
+        setForm((f) => ({ ...f, api_key: r.api_key }))
+        setShowApiKey(true)
+      }
+    } catch { /* key 拉取失败保持留空，不影响编辑 */ }
   }
 
   const toggle = async (s: LlmServer) => {
@@ -195,7 +203,10 @@ const ModelServersManager: React.FC = () => {
               <div>
                 <label className="neu-label">API Key（如有）</label>
                 <div style={{ position: 'relative' }}>
-                  <input type={showApiKey ? 'text' : 'password'} value={form.api_key} onChange={(e) => set('api_key', e.target.value)} placeholder="留空则不发送" className="neu-input w-full pr-16" />
+                  <input type={showApiKey ? 'text' : 'password'} value={form.api_key} onChange={(e) => set('api_key', e.target.value)} placeholder="留空则不发送" className="neu-input w-full pr-24" />
+                  <button type="button" onClick={() => setShowApiKey((v) => !v)} title={showApiKey ? '隐藏' : '显示'} className="absolute top-1/2 -translate-y-1/2 right-14 px-1.5 py-1 text-sm rounded" style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
+                    {showApiKey ? '🙈' : '👁'}
+                  </button>
                   <button type="button" onClick={() => copyToClipboard(form.api_key, 'api_key')} className="absolute top-1/2 -translate-y-1/2 right-2 px-2 py-1 text-xs rounded" style={{ background: 'var(--bg-elev)', border: '1px solid var(--border-soft)', color: copiedField === 'api_key' ? 'var(--ok)' : 'var(--text-dim)' }}>
                     {copiedField === 'api_key' ? '已复制' : '复制'}
                   </button>

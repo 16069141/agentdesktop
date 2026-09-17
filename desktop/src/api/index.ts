@@ -123,6 +123,7 @@ export const api = {
         body: { query, top_k: topK },
       }),
     spaces: (id: string) => request<any>('GET', `/api/knowledge-servers/${encodeURIComponent(id)}/spaces`),
+    getApiKey: (id: string) => request<any>('GET', `/api/knowledge-servers/${encodeURIComponent(id)}/api-key`),
   },
 
   // 工具
@@ -189,6 +190,7 @@ export const api = {
       request<any>('POST', `/api/connectors/${encodeURIComponent(id)}/invoke`, {
         body: { operation, params },
       }),
+    getApiKey: (id: string) => request<any>('GET', `/api/connectors/${encodeURIComponent(id)}/api-key`),
   },
 
   // 数据库只读连接（Phase B P1）
@@ -410,6 +412,7 @@ export const api = {
       request<any>('PUT', `/api/web-search-servers/${encodeURIComponent(id)}`, { body: data }),
     remove: (id: string) => request<any>('DELETE', `/api/web-search-servers/${encodeURIComponent(id)}`),
     test: (id: string) => request<any>('POST', `/api/web-search-servers/${encodeURIComponent(id)}/test`),
+    getApiKey: (id: string) => request<any>('GET', `/api/web-search-servers/${encodeURIComponent(id)}/api-key`),
   },
 
   // 外部 MCP Server（动态挂载为 Agent 工具）

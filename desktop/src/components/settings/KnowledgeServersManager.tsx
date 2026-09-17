@@ -59,6 +59,7 @@ const KnowledgeServersManager: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok'; text: string } | null>(null)
+  const [showApiKey, setShowApiKey] = useState(true)  // 编辑时默认明文显示已保存的 key
 
   const load = useCallback(async () => {
     try {
@@ -156,7 +157,7 @@ const KnowledgeServersManager: React.FC = () => {
     }
   }
 
-  const edit = (s: KbServer) => {
+  const edit = async (s: KbServer) => {
     setEditingId(s.id)
     setForm({
       id: s.id,
@@ -170,6 +171,14 @@ const KnowledgeServersManager: React.FC = () => {
       timeout_sec: s.timeout_sec,
       enabled: s.enabled,
     })
+    // 编辑时回填已保存的 API Key（后端明文接口，仅本地回环可访问）
+    try {
+      const r = await api.knowledgeServers.getApiKey(s.id)
+      if (r && r.api_key) {
+        setForm((f) => ({ ...f, api_key: r.api_key }))
+        setShowApiKey(true)
+      }
+    } catch { /* key 拉取失败保持留空，不影响编辑 */ }
   }
 
   const implemented = (platform: string) =>
@@ -315,10 +324,15 @@ const KnowledgeServersManager: React.FC = () => {
         </div>
         <div>
           <label className="text-sm" style={{ color: 'var(--text-dim)' }}>密钥（可选）</label>
-          <input type="password" value={form.api_key} onChange={(e) => set('api_key', e.target.value)}
-            placeholder="API Key / Token / user:pass（无鉴权留空）"
-            className="w-full mt-1 p-2 rounded-lg text-sm"
-            style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
+          <div className="relative mt-1">
+            <input type={showApiKey ? 'text' : 'password'} value={form.api_key} onChange={(e) => set('api_key', e.target.value)}
+              placeholder="API Key / Token / user:pass（无鉴权留空）"
+              className="w-full p-2 pr-16 rounded-lg text-sm"
+              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
+            <button type="button" onClick={() => setShowApiKey((v) => !v)} title={showApiKey ? '隐藏' : '显示'} className="absolute top-1/2 -translate-y-1/2 right-8 text-sm" style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
+              {showApiKey ? '🙈' : '👁'}
+            </button>
+          </div>
         </div>
         <div>
           <label className="text-sm" style={{ color: 'var(--text-dim)' }}>高级配置（JSON，可选）</label>

@@ -41,6 +41,7 @@ const SearchServersManager: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok'; text: string } | null>(null)
+  const [showApiKey, setShowApiKey] = useState(true)  // 编辑时默认明文显示已保存的 key
 
   const load = useCallback(async () => {
     try {
@@ -116,7 +117,7 @@ const SearchServersManager: React.FC = () => {
     }
   }
 
-  const edit = (s: SearchServer) => {
+  const edit = async (s: SearchServer) => {
     setEditingId(s.id)
     setForm({
       id: s.id,
@@ -128,6 +129,14 @@ const SearchServersManager: React.FC = () => {
       timeout_sec: s.timeout_sec,
       enabled: s.enabled,
     })
+    // 编辑时回填已保存的 API Key（后端明文接口，仅本地回环可访问）
+    try {
+      const r = await api.webSearchServers.getApiKey(s.id)
+      if (r && r.api_key) {
+        setForm((f) => ({ ...f, api_key: r.api_key }))
+        setShowApiKey(true)
+      }
+    } catch { /* key 拉取失败保持留空，不影响编辑 */ }
   }
 
   return (
@@ -232,10 +241,15 @@ const SearchServersManager: React.FC = () => {
           </div>
           <div>
             <label className="text-sm" style={{ color: 'var(--text-dim)' }}>API Key（免 Key 提供商可留空）</label>
-            <input type="password" value={form.api_key} onChange={(e) => set('api_key', e.target.value)}
-              placeholder="Tavily / Bing / Brave / SerpApi Key"
-              className="w-full mt-1 p-2 rounded-lg text-sm"
-              style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
+            <div className="relative mt-1">
+              <input type={showApiKey ? 'text' : 'password'} value={form.api_key} onChange={(e) => set('api_key', e.target.value)}
+                placeholder="Tavily / Bing / Brave / SerpApi Key"
+                className="w-full p-2 pr-16 rounded-lg text-sm"
+                style={{ background: 'var(--bg-panel)', color: 'var(--text)', border: '1px solid var(--border-soft)' }} />
+              <button type="button" onClick={() => setShowApiKey((v) => !v)} title={showApiKey ? '隐藏' : '显示'} className="absolute top-1/2 -translate-y-1/2 right-8 text-sm" style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
+                {showApiKey ? '🙈' : '👁'}
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

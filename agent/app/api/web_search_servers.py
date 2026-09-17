@@ -163,3 +163,16 @@ async def test_server(server_id: str):
     except Exception as exc:
         await web_search_server_repo.save_health(server_id, False)
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/{server_id:path}/api-key")
+async def get_api_key(server_id: str):
+    """返回真实 API Key（编辑时回填显示用；仅本地回环 + Token 鉴权可访问）。"""
+    server = await web_search_server_repo.get(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="连接不存在")
+    ref = server.get("api_key_ref")
+    api_key = ""
+    if ref:
+        api_key = await keychain.retrieve(ref) or ""
+    return {"server_id": server_id, "api_key": api_key, "has_api_key": bool(api_key)}

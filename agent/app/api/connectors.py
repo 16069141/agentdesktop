@@ -141,6 +141,19 @@ async def update_connector_cfg(cfg_id: str, body: ConnectorUpdate):
     return _mask(updated) if updated else None
 
 
+@router.get("/{cfg_id:path}/api-key")
+async def get_api_key(cfg_id: str):
+    """返回真实 API Key（编辑时回填显示用；仅本地回环 + Token 鉴权可访问）。"""
+    cfg = await repo.get(cfg_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail="连接器不存在")
+    return {
+        "cfg_id": cfg_id,
+        "api_key": await _resolve_api_key(cfg),
+        "has_api_key": bool(cfg.get("apiKeyRef")),
+    }
+
+
 @router.delete("/{cfg_id:path}")
 async def delete_connector_cfg(cfg_id: str):
     cfg = await repo.get(cfg_id)

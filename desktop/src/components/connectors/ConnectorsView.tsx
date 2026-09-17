@@ -139,10 +139,17 @@ const ConnectorsView: React.FC = () => {
     setForm({ id: '', type: 'erp', name: '', base_url: '', api_key: '', enabled: true })
     setShowForm(true)
   }
-  const startEdit = (c: ConnectorItem) => {
+  const startEdit = async (c: ConnectorItem) => {
     setEditing(c)
     setForm({ id: c.id, type: c.type, name: c.name, base_url: c.baseUrl, api_key: '', enabled: c.enabled })
     setShowForm(true)
+    // 编辑时回填已保存的 API Key（后端明文接口，仅本地回环可访问）
+    try {
+      const r = await api.connectors.getApiKey(c.id)
+      if (r && r.api_key) {
+        setForm((f) => ({ ...f, api_key: r.api_key }))
+      }
+    } catch { /* key 拉取失败保持留空，不影响编辑 */ }
   }
   const saveConnector = async () => {
     setError(null)
