@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, appendFileSync } from 'fs'
 import { randomBytes } from 'crypto'
 import { app } from 'electron'
 
@@ -14,7 +14,7 @@ let stopped = false
 let currentApprovalUrl = ''
 let currentApprovalSecret = ''
 
-export const AGENT_PORT = Number(process.env.AGENT_PORT || 8765)
+export const AGENT_PORT = Number(process.env.AGENT_PORT || 8766)
 
 /** 打包态（DMG/.app）与开发态（npx electron .）路径模式切换 */
 const isPackaged = app.isPackaged
@@ -133,10 +133,20 @@ export async function spawnAgentProcess(
 
   agentProcess.stdout?.on('data', (data: Buffer) => {
     process.stdout.write(`[Agent] ${data}`)
+    try {
+      const logPath = join(app.getPath('userData'), 'agent-data', 'backend-stderr.log')
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] [out] ${data}`)
+    } catch { /* 日志失败不影响主流程 */ }
   })
 
   agentProcess.stderr?.on('data', (data: Buffer) => {
     process.stderr.write(`[Agent:err] ${data}`)
+    // 后端 stderr 同时落盘（userData/agent-data/backend-stderr.log），
+    // GUI 启动时 stderr 不可见，崩溃排查全靠此文件
+    try {
+      const logPath = join(app.getPath('userData'), 'agent-data', 'backend-stderr.log')
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${data}`)
+    } catch { /* 日志失败不影响主流程 */ }
   })
 
   agentProcess.on('error', (err: Error) => {
@@ -145,6 +155,10 @@ export async function spawnAgentProcess(
 
   agentProcess.on('close', (code: number | null) => {
     console.log(`[Agent] 进程退出，code=${code}`)
+    try {
+      const logPath = join(app.getPath('userData'), 'agent-data', 'backend-stderr.log')
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] [close] code=${code}\n`)
+    } catch { /* 日志失败不影响主流程 */ }
     agentProcess = null
     if (stopped) return
     if (code !== 0 && restartCount < MAX_RESTARTS) {

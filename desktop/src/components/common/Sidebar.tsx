@@ -42,7 +42,7 @@ const Sidebar: React.FC = () => {
   const friendlyError = (e: unknown, action: string): string => {
     const msg = e instanceof Error ? e.message : String(e)
     if (/Failed to fetch|NetworkError|fetch/i.test(msg) || /网络错误/.test(msg)) {
-      return `${action}失败：无法连接本地服务（127.0.0.1:8765），请确认后端已启动后重试`
+      return `${action}失败：无法连接本地服务（127.0.0.1:8766），请确认后端已启动后重试`
     }
     if (/401|Unauthorized/.test(msg)) {
       return `${action}失败：本地服务鉴权失败，请重启客户端后重试`

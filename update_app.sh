@@ -63,6 +63,15 @@ rm -f "$EXTRACT"/dist/assets/index-*.js "$EXTRACT"/dist/assets/index-*.css
 cp -f "$SRC"/dist/assets/*.js "$EXTRACT/dist/assets/"
 cp -f "$SRC"/dist/assets/*.css "$EXTRACT/dist/assets/"
 [ -f "$SRC/dist/index.html" ] && cp -f "$SRC/dist/index.html" "$EXTRACT/dist/index.html"
+# 主进程（agentProcess.ts / main.ts / preload.ts 编译产物在 dist-electron/）
+# 历史 bug：asar 入口是 package.json 的 "main": "dist-electron/main.js"，
+# 而旧脚本只更新 dist/assets、把主进程复制到 main/ 从未被加载——
+# 主进程改动（如端口 8765→8766）从不生效。必须覆盖 dist-electron/。
+if ls "$SRC"/dist-electron/*.js >/dev/null 2>&1; then
+    mkdir -p "$EXTRACT/dist-electron"
+    cp -f "$SRC"/dist-electron/*.js "$EXTRACT/dist-electron/"
+    echo "  ✓ 主进程 dist-electron 已同步到 asar/dist-electron/ ($(ls "$SRC"/dist-electron/*.js | wc -l | tr -d ' ') 个文件)"
+fi
 
 # 4) 同步 index.html 中的资源引用（统一指向新 hash）
 echo "[4/5] 更新 index.html 引用..."

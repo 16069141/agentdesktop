@@ -47,7 +47,7 @@ const SettingsView: React.FC = () => {
   const fetchKeychainStatus = async () => {
     try {
       const token = await window.electronAPI?.getAgentToken() || ''
-      const resp = await fetch(`http://127.0.0.1:8765/api/security/keychain/status`, {
+      const resp = await fetch(`http://127.0.0.1:8766/api/security/keychain/status`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (resp.ok) return await resp.json()

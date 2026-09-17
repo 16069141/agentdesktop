@@ -1,4 +1,4 @@
-export const apiBase = 'http://127.0.0.1:8765'
+export const apiBase = 'http://127.0.0.1:8766'
 
 async function request<T>(
   method: string,

@@ -41,7 +41,7 @@ _EXT_MAP = {
 
 def backend_port() -> int:
     """后端监听端口（与 main.py 一致）。"""
-    return int(os.environ.get("AGENT_PORT", "8765"))
+    return int(os.environ.get("AGENT_PORT", "8766"))
 
 
 def is_local_base_url(base_url: str) -> bool:

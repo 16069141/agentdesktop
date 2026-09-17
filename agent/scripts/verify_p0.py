@@ -121,7 +121,7 @@ async def api_sso():
     st, _ = req("PUT", "/api/enterprise/sso/providers", {
         "name": "corp-oidc", "protocol": "oidc",
         "issuer": "https://sso.example.com/realms/corp",
-        "client_id": "agent", "redirect_uri": "http://127.0.0.1:8765/callback",
+        "client_id": "agent", "redirect_uri": "http://127.0.0.1:8766/callback",
     })
     check("SSO: 配置保存", st == 200, str(st))
     st, providers = req("GET", "/api/enterprise/sso/providers")

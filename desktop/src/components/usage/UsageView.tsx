@@ -16,7 +16,7 @@ interface DailyUsage {
   toolCalls: number
 }
 
-const apiBase = 'http://127.0.0.1:8765'
+const apiBase = 'http://127.0.0.1:8766'
 
 const UsageView: React.FC = () => {
   const [recent, setRecent] = useState<RecentUsage[]>([])

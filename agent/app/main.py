@@ -49,7 +49,7 @@ from .storage import (
 
 AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "")
 AGENT_HOST = os.environ.get("AGENT_HOST", "127.0.0.1")
-AGENT_PORT = int(os.environ.get("AGENT_PORT", "8765"))
+AGENT_PORT = int(os.environ.get("AGENT_PORT", "8766"))
 
 # 健康检查豁免鉴权：Electron 主进程启动 Agent 后靠它轮询就绪状态
 PUBLIC_PATHS = {"/healthz"}
