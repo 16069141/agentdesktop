@@ -118,11 +118,12 @@ export const api = {
       request<any>('PUT', `/api/knowledge-servers/${encodeURIComponent(id)}`, { body: data }),
     remove: (id: string) => request<any>('DELETE', `/api/knowledge-servers/${encodeURIComponent(id)}`),
     test: (id: string) => request<any>('POST', `/api/knowledge-servers/${encodeURIComponent(id)}/test`),
-    search: (id: string, query: string, topK = 5) =>
+    search: (id: string, query: string, topK = 5, topic?: string) =>
       request<any>('POST', `/api/knowledge-servers/${encodeURIComponent(id)}/search`, {
-        body: { query, top_k: topK },
+        body: { query, top_k: topK, topic: topic || undefined },
       }),
     spaces: (id: string) => request<any>('GET', `/api/knowledge-servers/${encodeURIComponent(id)}/spaces`),
+    topics: (id: string) => request<any>('GET', `/api/knowledge-servers/${encodeURIComponent(id)}/topics`),
     getApiKey: (id: string) => request<any>('GET', `/api/knowledge-servers/${encodeURIComponent(id)}/api-key`),
   },
 

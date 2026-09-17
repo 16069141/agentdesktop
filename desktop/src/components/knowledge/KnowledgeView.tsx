@@ -43,6 +43,8 @@ const KnowledgeView: React.FC = () => {
   const [servers, setServers] = useState<KbServer[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [query, setQuery] = useState('')
+  const [topics, setTopics] = useState<string[]>([])
+  const [topic, setTopic] = useState('')
   const [results, setResults] = useState<KbResult[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [msg, setMsg] = useState<{ kind: 'err' | 'ok'; text: string } | null>(null)
@@ -60,16 +62,31 @@ const KnowledgeView: React.FC = () => {
     }
   }, [])
 
+  const loadTopics = useCallback(async (id: string) => {
+    setTopics([])
+    setTopic('')
+    if (!id) return
+    try {
+      const r = await api.knowledgeServers.topics(id)
+      const t = r?.topics
+      if (Array.isArray(t) && t.length > 0) setTopics(t)
+    } catch { /* 平台不支持主题，忽略 */ }
+  }, [])
+
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    loadTopics(selectedId)
+  }, [selectedId, loadTopics])
 
   const search = async () => {
     if (!selectedId || !query.trim()) return
     setSearching(true)
     setMsg(null)
     try {
-      const r = await api.knowledgeServers.search(selectedId, query.trim(), 5)
+      const r = await api.knowledgeServers.search(selectedId, query.trim(), 5, topic || undefined)
       setResults(r.results || [])
     } catch (e) {
       setMsg({ kind: 'err', text: `检索失败：${e instanceof Error ? e.message : String(e)}` })
@@ -167,6 +184,20 @@ const KnowledgeView: React.FC = () => {
               </option>
             ))}
           </select>
+          {topics.length > 0 && (
+            <select
+              value={topic}
+              onChange={(e) => { setTopic(e.target.value); setResults(null) }}
+              title="按主题目录过滤检索"
+              className="shrink-0 p-2 rounded-lg text-sm"
+              style={{ background: 'var(--bg-elev)', color: 'var(--text)', border: '1px solid var(--border-soft)' }}
+            >
+              <option value="">全部主题</option>
+              {topics.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          )}
           <input
             type="text"
             value={query}

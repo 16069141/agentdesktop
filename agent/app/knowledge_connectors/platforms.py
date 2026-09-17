@@ -37,6 +37,17 @@ def _get_path(data: Any, path: str, default: Any = None) -> Any:
     return cur
 
 
+def _template_has(tpl, key: str) -> bool:
+    """body_template 中是否已含指定键（任意嵌套层）。"""
+    if isinstance(tpl, dict):
+        if key in tpl:
+            return True
+        return any(_template_has(v, key) for v in tpl.values())
+    if isinstance(tpl, list):
+        return any(_template_has(v, key) for v in tpl)
+    return False
+
+
 class DifyConnector(KnowledgeConnector):
     """Dify 知识库检索（POST /v1/datasets/{dataset_id}/retrieve）。"""
 
@@ -200,6 +211,19 @@ class GenericConnector(KnowledgeConnector):
 
     platform = "generic"
 
+    async def topics(self) -> List[str]:
+        """探测可用主题目录（LLM-WIKI 风格 GET /api/topics）；不支持时返回 []。"""
+        try:
+            async with httpx.AsyncClient(trust_env=False, timeout=self.timeout) as client:
+                resp = await client.get(f"{self.base_url}/api/topics", headers=self._headers())
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                topics = data.get("topics") if isinstance(data, dict) else None
+                return [str(t) for t in (topics or [])]
+        except Exception:
+            return []
+
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
         cfg_headers = self.extra.get("headers") or {}
@@ -217,7 +241,7 @@ class GenericConnector(KnowledgeConnector):
         except Exception:
             return False
 
-    async def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def search(self, query: str, top_k: int = 5, topic: str | None = None) -> List[Dict[str, Any]]:
         method = (self.extra.get("method") or "POST").upper()
         path = (self.extra.get("path") or "/search").lstrip("/")
         url = f"{self.base_url}/{path}"
@@ -228,15 +252,19 @@ class GenericConnector(KnowledgeConnector):
             if isinstance(o, list):
                 return [fill(v) for v in o]
             if isinstance(o, str):
-                return o.replace("{query}", query).replace("{top_k}", str(top_k))
+                return o.replace("{query}", query).replace("{top_k}", str(top_k)) \
+                         .replace("{topic}", topic or "")
             return o
 
         try:
             async with httpx.AsyncClient(trust_env=False, timeout=self.timeout) as client:
                 if method == "GET":
                     param = self.extra.get("query_param") or "q"
+                    params: dict = {param: query, "limit": top_k, "top_k": top_k}
+                    if topic:
+                        params["topic"] = topic
                     resp = await client.get(
-                        url, params={param: query, "limit": top_k, "top_k": top_k},
+                        url, params=params,
                         headers=self._headers(),
                     )
                 else:
@@ -245,6 +273,9 @@ class GenericConnector(KnowledgeConnector):
                     tpl = self.extra.get("body_template")
                     if not tpl:
                         tpl = {"query": "{query}", "top_k": "{top_k}"}
+                    if topic and not _template_has(tpl, "topic"):
+                        tpl = dict(tpl)
+                        tpl["topic"] = "{topic}"
                     resp = await client.post(
                         url, json=fill(tpl),
                         headers=self._headers(),
@@ -274,6 +305,7 @@ class GenericConnector(KnowledgeConnector):
                 "snippet": str(_get_path(it, self.extra.get("snippet_field") or "snippet", "") or "")[:500],
                 "source": str(_get_path(it, self.extra.get("source_field") or "source", "知识库") or "知识库"),
                 "url": f"{prefix}{url}" if url and url.startswith("/") else url,
+                "page": _get_path(it, self.extra.get("page_field") or "page", None),
                 "score": float(_get_path(it, self.extra.get("score_field") or "score", 0.0) or 0.0),
             })
         return results

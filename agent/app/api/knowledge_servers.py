@@ -181,6 +181,7 @@ async def test_server(server_id: str):
 async def search_server(server_id: str, body: dict):
     query = (body.get("query") or "").strip()
     top_k = int(body.get("top_k") or 5)
+    topic = (body.get("topic") or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query 不能为空")
     server = await repo.get(server_id)
@@ -190,8 +191,8 @@ async def search_server(server_id: str, body: dict):
         raise HTTPException(status_code=403, detail="连接已停用")
     api_key = await _resolve_api_key(server)
     connector = create_connector(server, api_key=api_key)
-    results = await connector.search(query, top_k=top_k)
-    return {"server_id": server_id, "query": query, "results": results}
+    results = await connector.search(query, top_k=top_k, topic=topic or None)
+    return {"server_id": server_id, "query": query, "topic": topic or None, "results": results}
 
 
 @router.get("/{server_id:path}/api-key")
@@ -221,6 +222,18 @@ async def list_spaces(server_id: str):
     elif platform == "confluence":
         items = await _confluence_spaces(server, api_key)
     return {"server_id": server_id, "platform": platform, "items": items}
+
+
+@router.get("/{server_id:path}/topics")
+async def list_topics(server_id: str):
+    """列出可用主题目录（LLM-WIKI 等通用 HTTP 平台）；不支持时返回空列表。"""
+    server = await repo.get(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="连接不存在")
+    api_key = await _resolve_api_key(server)
+    connector = create_connector(server, api_key=api_key)
+    topics = await connector.topics() if hasattr(connector, "topics") else []
+    return {"server_id": server_id, "topics": topics}
 
 
 async def _dify_datasets(server: dict, api_key: str) -> list[dict]:
