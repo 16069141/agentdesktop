@@ -240,8 +240,13 @@ class GenericConnector(KnowledgeConnector):
                         headers=self._headers(),
                     )
                 else:
+                    # 无 body_template 时兜底默认模板：兼容 /api/kb/search 这类
+                    # POST 检索接口（否则发空 body {} 导致服务端 400"缺少检索词"）
+                    tpl = self.extra.get("body_template")
+                    if not tpl:
+                        tpl = {"query": "{query}", "top_k": "{top_k}"}
                     resp = await client.post(
-                        url, json=fill(self.extra.get("body_template") or {}),
+                        url, json=fill(tpl),
                         headers=self._headers(),
                     )
                 resp.raise_for_status()
